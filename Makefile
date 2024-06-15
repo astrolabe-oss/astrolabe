@@ -4,5 +4,5 @@ test:
 coverage:
 	@pytest --cov --cov-fail-under=70 --cov-config .coveragerc
 
-analyze:
+lint:
 	@prospector --profile .prospector.yaml
