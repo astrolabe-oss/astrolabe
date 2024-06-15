@@ -1,0 +1,34 @@
+---
+type: "ProfileStrategy"
+name: "Example"
+description: "An Example SSH ProfileStrategy"
+provider: ["ssh"]     # ("ssh")       - Currently only ssh provider is supported. Future plans for "aws" and "k8s"
+protocol: "EXP"       # (str)         - A user defined PROTOCOL.  Defined in ()[./web.yaml] Used for display, you can then skip crawling by passing --skip-protocols
+providerArgs:         # (dict)        - A dict of arguments for each provider. 'ssh': ['ssh_command']
+    foo: |
+        any number of provider args can be passed in
+        and will be passed along to the provider(s) used by this crawl strategy
+childProvider:          # (dict) - Determines what provider children found will employ to further crawl
+    type: "matchAll"        # ("matchAll", "matchhPort", "matchAddress") - "matchAll" will employ 1 child provider for all children.
+    provider: "ssh"         # Use "matchOnly" to specify a provider for children found on specific
+#    type: "matchPort"      # ports
+#    matches:
+#        9160: "ssh"
+#        11211: "aws"
+#        5432: "aws"
+#        6379: "aws"
+#    default: "ssh"
+#    type: "matchAddress"   # address
+#    matches:
+#        "^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$": "ssh"
+#        "^.*[0-9a-z]{10}-[0-9a-z]{5}$": "k8s"
+#    default: "k8s"
+serviceNameFilter:      # (dict["not"|"only":list]) - a dict of filters
+    only:                       # "only"  - (list) - a whitelist of services names which ONLY will be crawled with this strategy
+        - "foo-service"         # "not"   - (list) - a blacklist of service names to NOT crawl with this strategy
+#    not:
+#      - "my-service-known"
+serviceNameRewrites:    # (dict) - a dict of "service_name": `string template` pairs with which to rewrite service names
+    foo-service: "bar-$protocol_mux"    # the service name will be substring matched.  the rewrite will be applied and all
+                                        # itsybitsy.node.Node() object attributes will be available as interpolated variables
+                                        # i.e. $protocol_mux, $ip, $provider

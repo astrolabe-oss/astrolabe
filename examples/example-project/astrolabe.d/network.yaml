@@ -1,0 +1,7 @@
+protocols:
+  TCP:
+    name: "Netstat"
+    blocking: true
+    is_database: false
+#hints:
+#skips:

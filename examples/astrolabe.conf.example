@@ -1,0 +1,8 @@
+; a .ini style config file for supplying astrolabe command line arguments
+; remove # to activate examples
+
+; example: skip-protocol-muxes
+#skip-protocol-muxes = [ignore-this-queue, 1234]
+
+; example: skip-protocol-muxes
+#ssh-concurrency = 100

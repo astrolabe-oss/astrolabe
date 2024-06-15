@@ -1,0 +1,45 @@
+---
+type: "ProfileStrategy"
+name: "HAProxy"
+description: "Parses HAProxy configuration"
+providers: ["ssh"]
+protocol: "HAP"
+providerArgs:
+    shell_command: |
+        # check for haproxy stats socket and "throw" ERROR if missing
+        [ -f /etc/haproxy/haproxy.cfg ] && ! grep -q 'stats socket' /etc/haproxy/haproxy.cfg && echo "ERROR: HAProxy configuration missing 'stats socket' directive!" && exit 1
+
+        # tweak the script for haproxy version differences
+        POS=$(if haproxy -version | grep -q "1\.8"; then echo "79"; else echo "36"; fi);
+
+        # get list of haproxy listeners, followed by all servers in the listener group
+        grep '^listen\|^\s*server' /etc/haproxy/haproxy.cfg  |
+
+        # only keep 1 sample server from each listener group
+        awk '($1=="listen"){l=$2;printed=0}($1=="server" && printed==0){print l,$3;printed=1}' |
+
+        # query the stats socket for max_conns on that listener to detect DEFUNCT-ness
+        while read listen host; do
+          # print listener name
+          echo -n $listen' ';
+
+          # haproxy 'show stat' command
+          echo 'show stat' | \
+
+          # piped to socat, and we parse the socket file from the config file
+          sudo socat $(grep socket /etc/haproxy/haproxy.cfg | awk '{print $3}') stdio | \
+
+          # only take the listener record
+          grep $listen',FRONT' | \
+
+          # print POS indicating max_conn_rate as well as the host/ip
+          awk -F, '{printf $'"$POS"'}'; echo ' '$host;
+        done |
+
+        # format output
+        tr ':' ' ' | awk 'BEGIN{print "mux address id conns metadata"};{print $4,$3,$1,$2,"haproxy_backend="$1}'
+childProvider:
+    type: "matchAll"
+    provider: "ssh"
+serviceNameRewrites:
+    database-01: "database-r/o"

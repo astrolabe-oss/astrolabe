@@ -1,0 +1,21 @@
+protocols:                          # Define your protocols hehre
+  HAP:                              # (str) - the id of a protocol
+    name: "HAProxy"                 # (str) - the display name of the protocol
+    blocking: true                  # (bool) - whether the protocol is blocking or not
+    is_database: false              # (bool) - whether children on the protocol will be databases or not
+  NSQ:
+    name: "NSQ"
+    blocking: false
+hints:
+  upstream-service-name:                        # (str) - name of upstream service
+    - service_name: "downstream-service-name"   # (str) - name of downstream service
+      protocol: "FOO"                           # (str) - protocol to associate with the relationship - from user defined protocols defined in [](./astrolabe.d)
+      protocol_mux: "1234"                      # (str) - protocol_mux to associate w/ the relationship
+      provider: "bar"                           # (str) - provider for the downstream node. Options: (`ssh`, `aws`)
+      instance_provider: "aws"                  # (str) - instance provider, from which a instance of the service will be retrieved for crawling. Options: (`aws`)
+skips:              # a list of substrings for which services will be skipped if the $skip is a substring of the services name
+  protocol_muxes:   # these will not be crawled nor name_lookup'd
+    - "foo"
+  service_names:    # these will have namelookup performed, but not crawled
+    - "bar"
+    - "baz

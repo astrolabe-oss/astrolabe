@@ -1,0 +1,12 @@
+inherits:
+  - default
+
+ignore-paths:
+  - build
+  - dist
+
+pylint:
+  disable:
+    - logging-format-interpolation  # prefer modern f strings
+    - misplaced-comparison-constant # prefer "yoda conditions"
+    - no-else-return                # prefer multiple return statements

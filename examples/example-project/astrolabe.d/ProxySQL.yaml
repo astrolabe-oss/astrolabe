@@ -1,0 +1,31 @@
+---
+type: "ProfileStrategy"
+name: "ProxySQL"
+description: "Parses Proxysql configuration"
+providers: ["ssh"]
+protocol: "PXY"
+providerArgs:
+    shell_command: |
+        # get one name/ip per each hostgroup pair
+        sudo -H mysql -P6032 -N -e "
+        SELECT
+            case
+                when hg.writer_hostgroup IN (SELECT hostgroup_id FROM mysql_servers)
+                then 'r/w'
+                else 'r/o'
+            end,
+            s.hostname,
+            hg.comment,
+            hg.reader_hostgroup,
+            hg.writer_hostgroup
+        FROM mysql_replication_hostgroups AS hg
+        JOIN mysql_servers AS s ON hg.reader_hostgroup = s.hostgroup_id
+        GROUP BY hg.comment
+        " |
+        # remove mysql ascii lines, add column labels
+        awk 'BEGIN{print "mux address id metadata"};{print $1,$2,$3,"reader_hostgroup="$4",writer_hostgroup="$5}'
+childProvider:
+    type: "matchAll"
+    provider: "ssh"
+serviceNameRewrites:
+    production-mysql-main: "mysql-main-$protocol_mux"
