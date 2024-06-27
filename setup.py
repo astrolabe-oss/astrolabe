@@ -34,7 +34,7 @@ setup(
         'pyyaml~=6.0',
         'graphviz>=0.13',
         'termcolor~=2.0',
-        'neo4j~=5.20'
+        'neo4j~=5.19.0' # neomodel 5.3.1 depends on neo4j~=5.19.0
     ],
     extras_require={
         'test': [
@@ -53,5 +53,5 @@ setup(
         "License :: OSI Approved :: Apache Software License     ",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.8',
+    python_requires='>=3.10',
 )
