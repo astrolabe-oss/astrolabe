@@ -64,6 +64,8 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
                            help='Format in which to output the final graph.  Available options: '
                                 f"[{','.join(registered_exporter_refs)}]")
         sub_p.add_argument('--debug', action='store_true', help='Log debug output to stderr')
+        sub_p.add_argument('-c', '--config-file', is_config_file=True, metavar='FILE',
+                            help='Specify a config file path')
 
     # discover command args
     discover_p.add_argument('-s', '--seeds', required=True, nargs='+', metavar='SEED',
@@ -74,8 +76,6 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
                           help='Timeout when discovering a node')
     discover_p.add_argument('-d', '--max-depth', type=int, default=100, metavar='DEPTH',
                             help='Max tree depth to discover')
-    discover_p.add_argument('-c', '--config-file', is_config_file=True, metavar='FILE',
-                            help='Specify a config file path')
     discover_p.add_argument('-X', '--disable-providers', nargs='+', default=[], metavar='PROVIDER',
                           help="Do not initialize or discover with these providers")
     discover_p.add_argument('-P', '--skip-protocols', nargs='+', default=[], metavar='PROTOCOL',

@@ -26,7 +26,7 @@ from .node import Node, NodeTransport
 
 service_name_cache: Dict[str, Optional[str]] = {}  # {address: service_name}
 child_cache: Dict[str, Dict[str, Node]] = {}  # {service_name: {node_ref, Node}}
-
+dns_cache: Dict[str, Optional[str]] = {}  # {dns_name: service_name}
 
 async def discover(tree: Dict[str, Node], ancestors: list):
     depth = len(ancestors)
@@ -34,6 +34,7 @@ async def discover(tree: Dict[str, Node], ancestors: list):
 
     conns, tree = await _open_connections(tree, ancestors)
     service_names, conns = await _lookup_service_names(tree, conns)
+    await _run_sidecars(tree, conns)
     await _assign_names_and_detect_cycles(tree, service_names, ancestors)
 
     if len(ancestors) > constants.ARGS.max_depth - 1:
@@ -52,7 +53,7 @@ def _filter_unprofileable_nodes_and_add_warnings(nodes_with_conns: List[Tuple[st
         if node.is_profileable(depth):
             profileable_nodes.append((ref, node, conn))
         else:
-            node.warnings['PROFILE_SKIPPED'] = True
+            node.errors['PROFILE_SKIPPED'] = True
 
     return profileable_nodes
 
@@ -79,13 +80,13 @@ async def _assign_names_and_detect_cycles(tree: Dict[str, Node], service_names: 
         if not service_name:
             logs.logger.debug("Name lookup failed for %s with address: %s", node_ref, tree[node_ref].address)
             service_name_cache[tree[node_ref].address] = None
-            tree[node_ref].errors['NAME_LOOKUP_FAILED'] = True
+            tree[node_ref].warnings['NAME_LOOKUP_FAILED'] = True
             continue
         service_name = tree[node_ref].profile_strategy.rewrite_service_name(service_name, tree[node_ref])
         if constants.ARGS.obfuscate:
             service_name = obfuscate.obfuscate_service_name(service_name)
         if service_name in ancestors:
-            tree[node_ref].warnings['CYCLE'] = True
+            tree[node_ref].errors['CYCLE'] = True
         tree[node_ref].service_name = service_name
 
 
@@ -186,6 +187,29 @@ async def _lookup_service_names(tree: Dict[str, Node], conns: list) -> (List[str
     return service_names, conns
 
 
+async def _run_sidecars(tree: Dict[str, Node], conns: list) -> None:
+    # lookup_name / detect cycles
+    responses = await asyncio.gather(
+        *[asyncio.wait_for(
+            _run_sidecar(node.address, providers.get_provider_by_ref(node.provider), conn),
+            constants.ARGS.timeout) for node, conn in zip(tree.values(), conns)],
+        return_exceptions=True
+    )
+
+    # handle exceptions
+    exceptions = [(ref, e) for ref, e in zip(list(tree), responses) if isinstance(e, Exception)]
+    for node_ref, e in exceptions:
+        if isinstance(e, asyncio.TimeoutError):
+            print(colored("Timeout during sidecar for %s:", node_ref, 'red'))
+            print(colored({**vars(tree[node_ref]), 'profile_strategy': tree[node_ref].profile_strategy.name},
+                          'yellow'))
+            traceback.print_tb(e.__traceback__)
+            sys.exit(1)
+        else:
+            traceback.print_tb(e.__traceback__)
+            sys.exit(1)
+
+
 async def _lookup_service_name(address: str, provider: providers.ProviderInterface,
                                connection: type) -> Optional[str]:
     if address in service_name_cache:
@@ -194,11 +218,22 @@ async def _lookup_service_name(address: str, provider: providers.ProviderInterfa
 
     logs.logger.debug("Getting service name for address %s", address)
     service_name = await provider.lookup_name(address, connection)
-    logs.logger.debug("Discovered name: %s for address %s", service_name, address)
-    service_name_cache[address] = service_name
+    if service_name:
+        logs.logger.debug("Discovered name: %s for address %s", service_name, address)
+        service_name_cache[address] = service_name
+        return service_name
 
-    return service_name
+    logs.logger.debug("Name discovery failed for address %s", address)
+    return None
 
+
+async def _run_sidecar(address: str, provider: providers.ProviderInterface,
+                               connection: type) -> bool:
+    logs.logger.debug("Running sidecar for address %s", address)
+    await provider.sidecar(address, connection)
+    logs.logger.debug("Ran sidecar for address %s", address)
+
+    return True
 
 async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, service_name: str,
                               connection: type) -> (str, Dict[str, Node]):

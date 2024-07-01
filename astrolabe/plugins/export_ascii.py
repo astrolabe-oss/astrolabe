@@ -15,7 +15,6 @@ import asyncio
 import sys
 from collections import namedtuple
 from dataclasses import asdict
-from string import Template
 from termcolor import colored
 from termcolor.termcolor import Color
 from typing import List, Dict
@@ -48,16 +47,6 @@ class ExporterAscii(exporters.ExporterInterface):
 live_export_lock = asyncio.Lock()
 Ancestor = namedtuple('Ancestor', 'last_sibling spacing')
 
-# errors/warnings
-error_messages = {
-    'NULL_ADDRESS': Template("service '$service_name' detected but an instance address is not available to discover!"),
-    'TIMEOUT': Template("SSH timeout connecting to service:'$service_name' at address: '$address'"),
-    'AWS_LOOKUP_FAILED': Template("AWS name lookup failed for :'$service_name' at address: '$address'")
-}
-warning_messages = {
-    'CYCLE': Template("service '$service_name' discovered as a parent of itself!"),
-    'DEFUNCT': Template("service '$service_name' configuration present on parent, but it not in use!")
-}
 _sleep_for_humans_seconds: float = .01
 _sleep_for_humans_counter = 0
 
@@ -174,6 +163,8 @@ def _export_node(node: Node, depth: int, prefix: str, is_last_sibling: bool, out
     # terminus
     if node.warnings.get('DEFUNCT'):
         terminus = 'x'
+    elif node.errors.get('CYCLE'):
+        terminus = '>'
     elif node.errors:
         terminus = '?'
     else:
@@ -182,7 +173,7 @@ def _export_node(node: Node, depth: int, prefix: str, is_last_sibling: bool, out
     # branch
     branch = ''
     if depth > 0:
-        bud = f"{'└' if is_last_sibling else '|'}" if not node.warnings.get('CYCLE') else '<'
+        bud = f"{'└' if is_last_sibling else '|'}" if not node.errors.get('CYCLE') else '<'
         branch += f"{bud}--{node.protocol.ref}--{terminus} "
 
     # hint display
@@ -226,13 +217,13 @@ def _export_node_errs_warns(node: Node, error_prefix: str, out):
                            f"and discovering skipped by configuration!",
         'NULL_ADDRESS': f"service '{node.service_name}' detected but an instance address is not available to discover!",
         'TIMEOUT': f"SSH timeout connecting to service:'{node.service_name}' at address: '{node.address}'",
-        'AWS_LOOKUP_FAILED': f"AWS name lookup failed for :'{_synthesize_node_ref(node, 'UNKNOWN')}'"
-                             f" at address: '{node.address}'"
+        'CYCLE': f"service '{node.service_name}' discovered as a parent of itself!",
+        'PROFILE_SKIPPED': f"service '{node.service_name}' discovered but discovering skipped by configuration"
     }
     warning_messages = {
-        'PROFILE_SKIPPED': f"service '{node.service_name}' discovered but discovering skipped by configuration",
-        'CYCLE': f"service '{node.service_name}' discovered as a parent of itself!",
-        'DEFUNCT': f"service '{node.service_name}' configuration present on parent, but it not in use!"
+        'DEFUNCT': f"service '{node.service_name}' configuration present on parent, but it not in use!",
+        'NAME_LOOKUP_FAILED': f"AWS name lookup failed for :'{_synthesize_node_ref(node, 'UNKNOWN')}'"
+                             f" at address: '{node.address}'"
     }
 
     # warnings verbose display

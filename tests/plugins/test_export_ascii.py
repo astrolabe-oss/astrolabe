@@ -129,14 +129,14 @@ async def test_export_tree_case_child_warning_cycle(tree_stubbed_with_child, cap
     # arrange
     seed = tree_stubbed_with_child[list(tree_stubbed_with_child)[0]]
     child = seed.children[list(seed.children)[0]]
-    child.warnings = {'CYCLE': True}
+    child.errors = {'CYCLE': True}
 
     # act
     await _helper_export_tree_with_timeout(tree_stubbed_with_child)
     captured = capsys.readouterr()
 
     # assert
-    assert f" <--{child.protocol.ref}--> \x1b[33m{{WARN:CYCLE}} \x1b[0m{child.service_name}" in captured.out
+    assert f" <--{child.protocol.ref}--> \x1b[31m{{ERR:CYCLE}} \x1b[0m{child.service_name}" in captured.out
 
 
 @pytest.mark.asyncio

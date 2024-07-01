@@ -56,6 +56,8 @@ def main():
     command = _cli_command()
     command.parse_args()
     constants.ARGS, _ = cli_args.argparser.parse_known_args()
+    if constants.ARGS.debug:
+        constants.PP.pprint(constants.ARGS)
     command.exec()
     print(f"\nGoodbye, {getpass.getuser()}\n", file=sys.stderr)
 

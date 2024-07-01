@@ -3,11 +3,10 @@ import pytest
 
 class TestNode:
     # is_profileable()
-    @pytest.mark.parametrize('warnings,errors', [(['FOO_WARN'], []), ([], ['FOO_ERR'])])
-    def test_is_profileable_case_warnings_errors(self, warnings, errors, node_fixture):
-        """not discoverable with either errors or warnings"""
+    @pytest.mark.parametrize('errors', [([], ['FOO_ERR'])])
+    def test_is_profileable_case_errors(self, errors, node_fixture):
+        """not discoverable with errors"""
         # arrange
-        node_fixture.warnings = warnings
         node_fixture.errors = errors
 
         # act/assert
@@ -183,15 +182,15 @@ class TestNode:
         # act/assert
         assert not node_fixture.name_lookup_complete()
 
-    def test_name_lookup_complete_case_warnings(self, node_fixture):
-        """Name lookup complete if we have warnings"""
+    def test_name_lookup_complete_case_name_lookup_failed(self, node_fixture):
+        """Name lookup complete if we have name lookup failure in warnings"""
         # arrange
         node_fixture.service_name = None
         node_fixture.errors = {}
-        node_fixture.warnings = {'STUB': True}
+        node_fixture.warnings = {'NAME_LOOKUP_FAILED': True}
 
         # act/assert
-        assert not node_fixture.name_lookup_complete()
+        assert node_fixture.name_lookup_complete()
 
     def test_name_lookup_complete_case_service_name(self, node_fixture):
         """Name lookup complete if we have a name!"""

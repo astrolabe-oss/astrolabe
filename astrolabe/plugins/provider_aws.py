@@ -28,6 +28,7 @@ from astrolabe.node import NodeTransport
 from astrolabe.network import Hint
 from astrolabe.providers import ProviderInterface
 from astrolabe.plugin_core import PluginArgParser
+from astrolabe.discover import dns_cache
 
 tag_name_pos = 0
 tag_value_pos = 1
@@ -38,8 +39,12 @@ class ProviderAWS(ProviderInterface):
         if constants.ARGS.aws_profile:
             boto3.setup_default_session(profile_name=constants.ARGS.aws_profile)
         self.ec2_client = boto3.client('ec2')
+        self.rds_client = boto3.client('rds')
+        self.elasticache_client = boto3.client('elasticache')
         self.tag_filters = {tag_filter.split('=')[tag_name_pos]: tag_filter.split('=')[tag_value_pos]
                             for tag_filter in constants.ARGS.aws_tag_filters}
+        self._inventory_rds()
+        self._inventory_elasticache()
 
     @staticmethod
     def ref() -> str:
@@ -54,31 +59,6 @@ class ProviderAWS(ProviderInterface):
         argparser.add_argument('--tag-filters', nargs='*',  metavar='FILTER', default = [],
                                help='Additional AWS tags to filter on or services.  Specified in format: '
                                     '"TAG_NAME=VALUE" pairs')
-
-    async def lookup_name(self, address: str, _: None) -> Optional[str]:
-        logs.logger.debug("Performing AWS name lookup for %s", address)
-        try:
-            response = self.ec2_client.describe_network_interfaces(
-                Filters=[{
-                    'Name': 'addresses.private-ip-address',
-                    'Values': [address]
-                }]
-            )
-        except ClientError as e:
-            _die(e)
-
-        # parse name from response
-        name = None
-        try:
-            description = response['NetworkInterfaces'][0]['Description']
-            if description.startswith('ElastiCache'):
-                name = description.replace(' ', '-').lower()
-            elif description.startswith('RDSNetworkInterface'):
-                name = f"{description}_{response['NetworkInterfaces'][0]['PrivateIpAddress']}"
-        except (KeyError, IndexError):
-            pass
-
-        return name
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
         instance_address = await self._resolve_instance(hint.service_name)
@@ -136,6 +116,25 @@ class ProviderAWS(ProviderInterface):
                 'Values': [value]
             })
         return filters
+
+    def _inventory_rds(self):
+        paginator = self.rds_client.get_paginator('describe_db_instances')
+        for page in paginator.paginate():
+            for instance in page['DBInstances']:
+                address = instance['Endpoint']['Address']
+                name = instance['DBInstanceIdentifier']
+
+                # Add instance information to the global dictionary
+                dns_cache[address] = name
+
+    def _inventory_elasticache(self):
+        paginator = self.elasticache_client.get_paginator('describe_cache_clusters')
+        for page in paginator.paginate(ShowCacheNodeInfo=True):
+            for cluster in page['CacheClusters']:
+                cluster_name = cluster['CacheClusterId']
+                for node in cluster['CacheNodes']:
+                    address = node['Endpoint']['Address']
+                    dns_cache[address] = cluster_name
 
 
 def _die(e):

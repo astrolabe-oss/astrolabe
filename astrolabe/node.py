@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from . import profile_strategy, constants, network
 
+
 database_muxes = ['3306', '9160', '5432', '6379', '11211']
 
 
@@ -57,7 +58,7 @@ class Node:
         return self.protocol_mux in database_muxes or self.protocol.is_database
 
     def is_profileable(self, depth):
-        if bool(self.errors) or bool(self.warnings):
+        if bool(self.errors):
             return False
 
         if network.skip_protocol_mux(self.protocol_mux):
@@ -101,4 +102,4 @@ class Node:
 
         :return:
         """
-        return bool(self.service_name) or bool(self.errors)
+        return bool(self.service_name) or bool(self.errors) or 'NAME_LOOKUP_FAILED' in self.warnings

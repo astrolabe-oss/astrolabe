@@ -216,8 +216,8 @@ async def test_discover_case_lookup_name_handles_exceptions(tree, provider_mock,
 
 # Calls to ProviderInterface::profile
 @pytest.mark.asyncio
-@pytest.mark.parametrize('name,profile_expected,error', [(None, False, 'NAME_LOOKUP_FAILED'), ('foo', True, None)])
-async def test_discover_case_profile_based_on_name(name, profile_expected, error, tree, provider_mock, ps_mock):
+@pytest.mark.parametrize('name,profile_expected,warning', [(None, True, 'NAME_LOOKUP_FAILED'), ('foo', True, None)])
+async def test_discover_case_profile_based_on_name(name, profile_expected, warning, tree, provider_mock, ps_mock):
     """Depending on whether provider.name_lookup() returns a name - we should or should not profile()"""
     # arrange
     provider_mock.lookup_name.return_value = name
@@ -228,17 +228,16 @@ async def test_discover_case_profile_based_on_name(name, profile_expected, error
 
     # assert
     assert provider_mock.profile.called == profile_expected
-    if error:
-        assert error in list(tree.values())[0].errors
+    if warning:
+        assert warning in list(tree.values())[0].warnings
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('attr', ['warnings', 'errors'])
-async def test_discover_case_do_not_profile_node_with_warns_errors(attr, tree, provider_mock, ps_mock):
-    """We should not profile for node with any arbitrary warning or error"""
+async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock, ps_mock):
+    """We should not profile for node with any arbitrary error"""
     # arrange
     provider_mock.lookup_name.return_value = 'dummy_name'
-    setattr(list(tree.values())[0], attr, {'DUMMY': True})
+    list(tree.values())[0].errors = {'DUMMY': True}
 
     # act
     await discover.discover(tree, [])
@@ -315,7 +314,7 @@ async def test_discover_case_cycle(tree, provider_mock, ps_mock):
     await discover.discover(tree, [cycle_service_name])
 
     # assert
-    assert 'CYCLE' in list(tree.values())[0].warnings
+    assert 'CYCLE' in list(tree.values())[0].errors
     provider_mock.lookup_name.assert_called_once()
     provider_mock.profile.assert_not_called()
 
@@ -334,7 +333,7 @@ async def test_discover_case_service_name_rewrite_cycle_detected(tree, provider_
     await discover.discover(tree, [cycle_service_name])
 
     # assert
-    assert 'CYCLE' in list(tree.values())[0].warnings
+    assert 'CYCLE' in list(tree.values())[0].errors
 
 
 # Parsing of ProviderInterface::profile

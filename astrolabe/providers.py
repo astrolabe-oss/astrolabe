@@ -68,6 +68,21 @@ class ProviderInterface(PluginInterface):
         del address, connection
         return None
 
+    async def sidecar(self, address: str, connection: Optional[type]) -> Optional[str]:
+        """
+        Optionally run any arbitrary code from with in the node context.  Lets just call it a sidecar b/c it
+        kind of is.
+
+        :param address: look up the name for this IP address
+        :param connection: optional connection.  for example if an ssh connection was opened during
+                                   lookup_name() it can be returned there and re-used here
+        :return: the derived service name in string form
+        :raises:
+            NameLookupFailedException - Not able to find a name in the provider
+        """
+        del address, connection
+        return None
+
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
         """
         Takes a hint, looks up an instance of service in the provider, and returns a NodeTransport representing the

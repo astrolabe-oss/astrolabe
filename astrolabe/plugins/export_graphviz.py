@@ -9,6 +9,9 @@ Copyright 2024 Magellanbot, Inc
 
 License:
 SPDX-License-Identifier: Apache-2.0
+
+System Requirements:
+- requires system installation of graphviz package
 """
 
 from graphviz import Digraph

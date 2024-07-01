@@ -23,7 +23,7 @@ Configure Astrolabe to discover your network topology by introspecting runtime e
 1. Run `astrolabe --help` for all available commands and `astrolabe discover --help` and `astrolabe export --help` for command specific configuration.
 1. Disable builtin provider with the argument `--disable-providers ssh aws k8s`
 1. Set any configurations which are known to be required for every run in `discover.conf` see [./examples/astrolabe.conf.example](./examples/discover.conf.example)
-  1. Hint: `astrolabe.conf` is always inherited, but you can create different profiles such as `astrolabe.prod.conf` and reference them with the `--profile` arg
+  1. Hint: `astrolabe.conf` is always inherited, but you can create different profiles such as `astrolabe.prod.conf` and reference them with the `--config-file` arg
 
 Note: unlike the `discover` command, `export` is written to stand alone and parse the default json file in `outputs/.lastrun.json` it requires no arguments by default.
 

@@ -30,6 +30,7 @@ from astrolabe import constants, logs
 from astrolabe.providers import ProviderInterface, TimeoutException, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
 from astrolabe.node import NodeTransport
+from astrolabe.discover import dns_cache, service_name_cache
 
 bastion: Optional[SSHClientConnection] = None
 connect_timeout = 5
@@ -75,6 +76,10 @@ class ProviderSSH(ProviderInterface):
         logs.logger.debug("Discovered name: %s for address %s", node_name, address)
 
         return node_name
+
+    async def sidecar(self, address: str, connection: SSHClientConnection) -> None:
+        logs.logger.debug("Running sidecars for address %s", address)
+        await _sidecar_lookup_hostnames(address, connection)
 
     async def profile(self, address: str, connection: SSHClientConnection, **kwargs) -> List[NodeTransport]:
         try:
@@ -228,3 +233,18 @@ def _get_proxyjump_host(config):
         return None
 
     return config['proxyjump']
+
+
+async def _sidecar_lookup_hostnames(address: str, connection: SSHClientConnection) -> None:
+    """we are cheating! for every instance we ssh into, we are going to try a name lookup
+       to get the DNS names for anything in the astrolabe DNS Cache that we don't yet have
+       """
+    for hostname, service_name in dns_cache.items():
+        sidecar_command = f"getent hosts {hostname} | awk '{{print $1}}'"
+        logs.logger.debug(f"Running sidecar command: {sidecar_command} for address %s", address)
+        async with connection_semaphore:
+            result = await connection.run(sidecar_command, check=True)
+        ip_addr = result.stdout.strip() if result else None
+        if ip_addr and ip_addr not in service_name_cache:
+            logs.logger.debug(f"Discovered IP address for {hostname}: from address %s", address)
+            service_name_cache[ip_addr] = service_name
