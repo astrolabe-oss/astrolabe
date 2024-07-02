@@ -7,14 +7,14 @@ from astrolabe import network
 def _write_stub_web_yaml(astrolabe_d: str, contents: str) -> None:
     """Helper method to write contents to the stub web.yaml file"""
     file = os.path.join(astrolabe_d, 'network.yaml')
-    with open(file, 'w') as f:
-        f.write(contents)
+    with open(file, 'w', encoding='utf8') as open_file:
+        open_file.write(contents)
 
 
 def test_spin_up_case_malformed_web_yaml(astrolabe_d):
     """Malformed yaml is caught in initializing network"""
     # arrange
-    fake_protocol_web_yaml = f"""
+    fake_protocol_web_yaml = """
  ---
  :!!#$T%!##
  protocols:
@@ -32,7 +32,7 @@ def test_spin_up_case_malformed_web_yaml(astrolabe_d):
 def test_spin_up_case_malformed_protocol(astrolabe_d):
     """Well-formed yaml, malformed protocol schema is caught"""
     # arrange
-    fake_protocol_web_yaml = f"""
+    fake_protocol_web_yaml = """
 ---
 protocols:
   FOO:
@@ -51,7 +51,7 @@ protocols:
 def test_spin_up_case_no_protocols(astrolabe_d):
     """No user defined protocols is caught"""
     # arrange
-    fake_protocol_web_yaml = f"""
+    fake_protocol_web_yaml = """
 ---
 foo: bar
 """
@@ -96,7 +96,7 @@ def test_skip_service_name(astrolabe_d, mocker):
     # Technically an integration test that tests the interaction of spin_up() and skip_service_name()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
-    hint_web_yaml = f"""
+    hint_web_yaml = """
 skips:
   service_names:
     - "foo"
@@ -124,7 +124,7 @@ def test_skip_protocol_mux(astrolabe_d, mocker):
     # Technically an integration test that tests the interaction of spin_up() and skip_protocol_mux()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
-    hint_web_yaml = f"""
+    hint_web_yaml = """
 skips:
   service_names:
     - "foo"

@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
 from typing import Dict, Optional
 from dataclasses import dataclass, field
 
-from . import profile_strategy, constants, network
+from astrolabe import profile_strategy, constants, network
 
 
 database_muxes = ['3306', '9160', '5432', '6379', '11211']
@@ -39,7 +39,7 @@ class NodeTransport:
 
 
 @dataclass
-class Node:
+class Node:  # pylint:disable=too-many-instance-attributes
     profile_strategy: profile_strategy.ProfileStrategy
     protocol: network.Protocol
     protocol_mux: str

@@ -20,7 +20,7 @@ from string import Template
 from typing import List, Optional
 from yaml import safe_load_all
 
-from . import network, constants, logs
+from astrolabe import network, constants, logs
 
 
 class ProfileStrategyException(Exception):
@@ -28,7 +28,7 @@ class ProfileStrategyException(Exception):
 
 
 @dataclass(frozen=True)
-class ProfileStrategy:
+class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
     description: str
     name: str
     protocol: network.Protocol
@@ -123,7 +123,7 @@ def _load_profile_strategies():
                 for dct in dcts:
                     if 'ProfileStrategy' == dct.get('type'):
                         protocol = network.get_protocol(dct['protocol'])
-                        cs = ProfileStrategy(
+                        pfs = ProfileStrategy(
                             dct['description'],
                             dct['name'],
                             protocol,
@@ -133,6 +133,6 @@ def _load_profile_strategies():
                             dct['serviceNameFilter'] if 'serviceNameFilter' in dct else {},
                             dct['serviceNameRewrites'] if 'serviceNameRewrites' in dct else {}
                         )
-                        profile_strategies.append(cs)
+                        profile_strategies.append(pfs)
                         logs.logger.debug('Loaded ProfileStrategy:')
-                        logs.logger.debug(cs)
+                        logs.logger.debug(pfs)

@@ -16,15 +16,15 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import asyncio
-import asyncssh
 import os
-import paramiko
 import getpass
 import sys
+from typing import List, Optional
 
+import asyncssh
+import paramiko
 from asyncssh import ChannelOpenError, SSHClientConnection
 from termcolor import colored
-from typing import List, Optional
 
 from astrolabe import constants, logs
 from astrolabe.providers import ProviderInterface, TimeoutException, parse_profile_strategy_response
@@ -33,11 +33,11 @@ from astrolabe.node import NodeTransport
 from astrolabe.discover import dns_cache, service_name_cache
 
 bastion: Optional[SSHClientConnection] = None
-connect_timeout = 5
-connection_semaphore = None
-connection_semaphore_spaces_used = 0
-connection_semaphore_spaces_min = 10
-ssh_connect_args = None
+CONNECT_TIMEOUT = 5
+CONNECTION_SEMAPHORE = None
+CONNECTION_SEMAPHORE_SPACES_USED = 0
+CONNECTION_SEMAPHORE_SPACES_MIN = 10
+SSH_CONNECT_ARGS = None
 
 
 class ProviderSSH(ProviderInterface):
@@ -61,16 +61,16 @@ class ProviderSSH(ProviderInterface):
 
     async def open_connection(self, address: str) -> SSHClientConnection:
         await _configure_connection_semaphore()
-        if not ssh_connect_args:
+        if not SSH_CONNECT_ARGS:
             await _configure(address)
         logs.logger.debug("Getting asyncio SSH connection for host %s", address)
-        async with connection_semaphore:
+        async with CONNECTION_SEMAPHORE:
             return await _get_connection(address)
 
     async def lookup_name(self, address: str, connection: SSHClientConnection) -> str:
         logs.logger.debug("Getting service name for address %s", address)
         node_name_command = constants.ARGS.ssh_name_command
-        async with connection_semaphore:
+        async with CONNECTION_SEMAPHORE:
             result = await connection.run(node_name_command, check=True)
         node_name = result.stdout.strip()
         logs.logger.debug("Discovered name: %s for address %s", node_name, address)
@@ -84,10 +84,10 @@ class ProviderSSH(ProviderInterface):
     async def profile(self, address: str, connection: SSHClientConnection, **kwargs) -> List[NodeTransport]:
         try:
             command = kwargs['shell_command']
-        except IndexError as e:
+        except IndexError as exc:
             print(colored(f"Crawl Strategy incorrectly configured for provider SSH.  "
                           f"Expected **kwargs['shell_command']. Got:{str(kwargs)}", 'red'))
-            raise e
+            raise exc
         response = await connection.run(command)
         if response.stdout.strip().startswith('ERROR:'):
             raise Exception("CRAWL ERROR: %s" %  # pylint: disable=broad-exception-raised
@@ -100,16 +100,16 @@ async def _get_connection(host: str, retry_num=0) -> asyncssh.SSHClientConnectio
     try:
         if bastion:
             logs.logger.debug("Using bastion: %s", str(bastion))
-            return await bastion.connect_ssh(host, **ssh_connect_args)
-        return await asyncssh.connect(host, **ssh_connect_args)
-    except ChannelOpenError as e:
-        raise TimeoutException(f"asyncssh.ChannelOpenError encountered opening SSH connection for {host}") from e
-    except Exception as e:
+            return await bastion.connect_ssh(host, **SSH_CONNECT_ARGS)
+        return await asyncssh.connect(host, **SSH_CONNECT_ARGS)
+    except ChannelOpenError as exc:
+        raise TimeoutException(f"asyncssh.ChannelOpenError encountered opening SSH connection for {host}") from exc
+    except Exception as exc:
         if retry_num < 3:
             asyncio.ensure_future(_occupy_one_sempahore_space())
             await asyncio.sleep(.1)
-            return await _get_connection(host, retry_num+1)
-        raise e
+            return await _get_connection(host, retry_num + 1)
+        raise exc
 
 
 async def _occupy_one_sempahore_space() -> None:
@@ -120,25 +120,25 @@ async def _occupy_one_sempahore_space() -> None:
        than that which leaves {semaphore_spaces_min} spaces in the
        semaphore for real work.
     """
-    global connection_semaphore_spaces_used
+    global CONNECTION_SEMAPHORE_SPACES_USED
 
-    if (constants.ARGS.ssh_concurrency - connection_semaphore_spaces_used) > connection_semaphore_spaces_min:
-        async with connection_semaphore:
-            connection_semaphore_spaces_used += 1
-            logs.logger.debug("Using 1 additional semaphore space, (%d used)", connection_semaphore_spaces_used)
+    if (constants.ARGS.ssh_concurrency - CONNECTION_SEMAPHORE_SPACES_USED) > CONNECTION_SEMAPHORE_SPACES_MIN:
+        async with CONNECTION_SEMAPHORE:
+            CONNECTION_SEMAPHORE_SPACES_USED += 1
+            logs.logger.debug("Using 1 additional semaphore space, (%d used)", CONNECTION_SEMAPHORE_SPACES_USED)
             forever_in_the_context_of_this_program = 86400
             await asyncio.sleep(forever_in_the_context_of_this_program)
 
 
 # configuration private functions
 async def _configure(address: str):
-    global bastion, ssh_connect_args
+    global bastion, SSH_CONNECT_ARGS
     # SSH CONNECT ARGS
-    ssh_connect_args = {'known_hosts': None}
+    SSH_CONNECT_ARGS = {'known_hosts': None}
     ssh_config = _get_ssh_config_for_host(address)
-    ssh_connect_args['username'] = ssh_config.get('user')
+    SSH_CONNECT_ARGS['username'] = ssh_config.get('user')
     if constants.ARGS.ssh_passphrase:
-        ssh_connect_args['passphrase'] = getpass.getpass(colored("Enter SSH key passphrase:", 'green'))
+        SSH_CONNECT_ARGS['passphrase'] = getpass.getpass(colored("Enter SSH key passphrase:", 'green'))
 
     # BASTION
     bastion_address = _get_jump_server_for_host(ssh_config)
@@ -147,7 +147,7 @@ async def _configure(address: str):
 
     try:
         bastion = await asyncio.wait_for(
-            asyncssh.connect(bastion_address, **ssh_connect_args), timeout=constants.ARGS.ssh_bastion_timeout
+            asyncssh.connect(bastion_address, **SSH_CONNECT_ARGS), timeout=constants.ARGS.ssh_bastion_timeout
         )
     except asyncio.TimeoutError:
         print(colored(f"Timeout connecting to SSH bastion server: {bastion_address}.  "
@@ -162,8 +162,8 @@ async def _configure(address: str):
 
 
 async def _configure_connection_semaphore():
-    global connection_semaphore
-    connection_semaphore = asyncio.BoundedSemaphore(constants.ARGS.ssh_concurrency)
+    global CONNECTION_SEMAPHORE
+    CONNECTION_SEMAPHORE = asyncio.BoundedSemaphore(constants.ARGS.ssh_concurrency)
 
 
 def _get_ssh_config_for_host(host: str) -> dict:
@@ -184,8 +184,8 @@ def _get_ssh_config_for_host(host: str) -> dict:
     ssh_config = paramiko.SSHConfig()
     user_config_file = os.path.expanduser(constants.ARGS.ssh_config_file)
     try:
-        with open(user_config_file, encoding="utf8") as f:
-            ssh_config.parse(f)
+        with open(user_config_file, encoding="utf8") as open_file:
+            ssh_config.parse(open_file)
     except FileNotFoundError:
         print("%s file could not be found. Aborting.", user_config_file)
         sys.exit(1)
@@ -242,7 +242,7 @@ async def _sidecar_lookup_hostnames(address: str, connection: SSHClientConnectio
     for hostname, service_name in dns_cache.items():
         sidecar_command = f"getent hosts {hostname} | awk '{{print $1}}'"
         logs.logger.debug(f"Running sidecar command: {sidecar_command} for address %s", address)
-        async with connection_semaphore:
+        async with CONNECTION_SEMAPHORE:
             result = await connection.run(sidecar_command, check=True)
         ip_addr = result.stdout.strip() if result else None
         if ip_addr and ip_addr not in service_name_cache:

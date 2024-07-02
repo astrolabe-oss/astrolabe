@@ -15,18 +15,19 @@ SPDX-License-Identifier: Apache-2.0
 import asyncio
 import sys
 import traceback
-
 from dataclasses import replace
-from termcolor import colored
 from typing import Dict, List, Optional, Tuple
 
-from . import profile_strategy, network, constants, logs, obfuscate, providers
-from .profile_strategy import ProfileStrategy
-from .node import Node, NodeTransport
+from termcolor import colored
+
+from astrolabe import profile_strategy, network, constants, logs, obfuscate, providers
+from astrolabe.profile_strategy import ProfileStrategy
+from astrolabe.node import Node, NodeTransport
 
 service_name_cache: Dict[str, Optional[str]] = {}  # {address: service_name}
 child_cache: Dict[str, Dict[str, Node]] = {}  # {service_name: {node_ref, Node}}
 dns_cache: Dict[str, Optional[str]] = {}  # {dns_name: service_name}
+
 
 async def discover(tree: Dict[str, Node], ancestors: list):
     depth = len(ancestors)
@@ -95,8 +96,8 @@ def _get_profile_result_with_exception_handling(future: asyncio.Future) -> (str,
         return future.result()
     except TimeoutError:
         sys.exit(1)
-    except Exception as e:
-        traceback.print_tb(e.__traceback__)
+    except Exception as exc:  # pylint:disable=broad-exception-caught
+        traceback.print_tb(exc.__traceback__)
         sys.exit(1)
 
 
@@ -133,16 +134,16 @@ async def _gather_connections(tree: Dict[str, Node]):
 
 def _handle_connection_open_exceptions(exceptions: List[Tuple[str, Exception]], tree: Dict[str, Node],
                                        ancestors: List[str]):
-    for node_ref, e in exceptions:
-        if isinstance(e, (providers.TimeoutException, asyncio.TimeoutError)):
-            logs.logger.debug("Connection timeout when attempting to connect to %s with address: %s"
-                              , node_ref, tree[node_ref].address)
+    for node_ref, exc in exceptions:
+        if isinstance(exc, (providers.TimeoutException, asyncio.TimeoutError)):
+            logs.logger.debug("Connection timeout when attempting to connect to %s with address: %s",
+                              node_ref, tree[node_ref].address)
             tree[node_ref].errors['TIMEOUT'] = True
         else:
             child_of = f"child of {ancestors[len(ancestors)-1]}" if len(ancestors) > 0 else ''
-            print(colored(f"Exception {e.__class__.__name__} occurred opening connection for {node_ref}, "
+            print(colored(f"Exception {exc.__class__.__name__} occurred opening connection for {node_ref}, "
                           f"{tree[node_ref].address} {child_of}", 'red'))
-            traceback.print_tb(e.__traceback__)
+            traceback.print_tb(exc.__traceback__)
             sys.exit(1)
 
 
@@ -173,15 +174,15 @@ async def _lookup_service_names(tree: Dict[str, Node], conns: list) -> (List[str
 
     # handle exceptions
     exceptions = [(ref, e) for ref, e in zip(list(tree), service_names) if isinstance(e, Exception)]
-    for node_ref, e in exceptions:
-        if isinstance(e, asyncio.TimeoutError):
+    for node_ref, exc in exceptions:
+        if isinstance(exc, asyncio.TimeoutError):
             print(colored("Timeout during name lookup for %s:", node_ref, 'red'))
             print(colored({**vars(tree[node_ref]), 'profile_strategy': tree[node_ref].profile_strategy.name},
                           'yellow'))
-            traceback.print_tb(e.__traceback__)
+            traceback.print_tb(exc.__traceback__)
             sys.exit(1)
         else:
-            traceback.print_tb(e.__traceback__)
+            traceback.print_tb(exc.__traceback__)
             sys.exit(1)
 
     return service_names, conns
@@ -197,16 +198,16 @@ async def _run_sidecars(tree: Dict[str, Node], conns: list) -> None:
     )
 
     # handle exceptions
-    exceptions = [(ref, e) for ref, e in zip(list(tree), responses) if isinstance(e, Exception)]
-    for node_ref, e in exceptions:
-        if isinstance(e, asyncio.TimeoutError):
+    exceptions = [(ref, exc) for ref, exc in zip(list(tree), responses) if isinstance(exc, Exception)]
+    for node_ref, exc in exceptions:
+        if isinstance(exc, asyncio.TimeoutError):
             print(colored("Timeout during sidecar for %s:", node_ref, 'red'))
             print(colored({**vars(tree[node_ref]), 'profile_strategy': tree[node_ref].profile_strategy.name},
                           'yellow'))
-            traceback.print_tb(e.__traceback__)
+            traceback.print_tb(exc.__traceback__)
             sys.exit(1)
         else:
-            traceback.print_tb(e.__traceback__)
+            traceback.print_tb(exc.__traceback__)
             sys.exit(1)
 
 
@@ -228,12 +229,13 @@ async def _lookup_service_name(address: str, provider: providers.ProviderInterfa
 
 
 async def _run_sidecar(address: str, provider: providers.ProviderInterface,
-                               connection: type) -> bool:
+                       connection: type) -> bool:
     logs.logger.debug("Running sidecar for address %s", address)
     await provider.sidecar(address, connection)
     logs.logger.debug("Ran sidecar for address %s", address)
 
     return True
+
 
 async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, service_name: str,
                               connection: type) -> (str, Dict[str, Node]):
@@ -279,13 +281,13 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
     profile_strategies: List[ProfileStrategy] = []
 
     # profile_strategies
-    for cs in profile_strategy.profile_strategies:
-        if cs.protocol.ref in constants.ARGS.skip_protocols or cs.filter_service_name(service_name) \
-                or provider.ref() not in cs.providers:
+    for pfs in profile_strategy.profile_strategies:
+        if pfs.protocol.ref in constants.ARGS.skip_protocols or pfs.filter_service_name(service_name) \
+                or provider.ref() not in pfs.providers:
             continue
-        profile_strategies.append(cs)
+        profile_strategies.append(pfs)
         tasks.append(asyncio.wait_for(
-            provider.profile(address, connection, **cs.provider_args),
+            provider.profile(address, connection, **pfs.provider_args),
             timeout=constants.ARGS.timeout
         ))
 

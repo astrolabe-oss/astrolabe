@@ -1,8 +1,8 @@
 import json
 import os
-import pytest
 from dataclasses import replace
 from types import SimpleNamespace
+import pytest
 
 from astrolabe import profile_strategy
 from astrolabe import network
@@ -39,8 +39,8 @@ def test_load_case_args_primitives(tmp_path, mocker):
   "tree": %s
 }
 ''' % (max_depth, json.dumps(stub_tree))
-    with open(tmp_file, 'w') as f:
-        f.write(stub_json)
+    with open(tmp_file, 'w', encoding='utf8') as open_file:
+        open_file.write(stub_json)
 
     # act
     tree = export_json.load(tmp_file)
@@ -51,6 +51,7 @@ def test_load_case_args_primitives(tmp_path, mocker):
     assert constants.ARGS.skip_nonblocking_grandchildren
 
 
+# pylint:disable=too-many-locals, unused-argument
 def test_load_case_objects(cli_args_fixture, tmp_path):
     """Custom objects can be loaded from a json file. Apologies for the ungodly size of this unit test"""
     # cli_args_fixture fixture is called but not used simply in order to mock it in export_json.dump()
@@ -108,8 +109,8 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
   }}
 }}
 """
-    with open(tmp_file, 'w') as f:
-        f.write(stub_json)
+    with open(tmp_file, 'w', encoding='utf8') as open_file:
+        open_file.write(stub_json)
 
     # act
     tree = export_json.load(tmp_file)
@@ -157,7 +158,8 @@ def test_dump_case_args(tmp_path):
 
     # act
     export_json.dump(tree, tmp_file)
-    loaded = json.load(open(tmp_file))
+    with open(tmp_file, 'r', encoding='utf8') as tmp_file:
+        loaded = json.load(tmp_file)
 
     # assert
     assert loaded.get('args') == vars(constants.ARGS)
@@ -176,13 +178,15 @@ def test_dump_case_primitives(tmp_path, cli_args_fixture):
 
     # act
     export_json.dump(tree, tmp_file)
-    loaded = json.load(open(tmp_file))
+    with open(tmp_file, 'r', encoding='utf8') as tmp_file:
+        loaded = json.load(tmp_file)
 
     # assert
     assert loaded.get('tree') == tree
 
 
-def test_dump_case_objects(cli_args_fixture, tmp_json_dumpfile, node_fixture, profile_strategy_fixture, protocol_fixture):
+def test_dump_case_objects(cli_args_fixture, tmp_json_dumpfile, node_fixture, profile_strategy_fixture,
+                           protocol_fixture):
     """Custom objects are json dumped to disk. Apologies for the large size of this unit test"""
     # cli_args_fixture fixture is called but not used simply in order to mock it in export_json.dump()
     # arrange
@@ -193,14 +197,14 @@ def test_dump_case_objects(cli_args_fixture, tmp_json_dumpfile, node_fixture, pr
     # - profile strategy
     ps_description, ps_name, ps_providers, ps_provider_args, ps_child_provider, ps_filter, ps_rewrites = \
         ('foo', 'bar', ['baz'], {'buzz': 'buzzbuzz'}, {'qux': True}, {'quux': True}, {'quz': True})
-    cs = replace(profile_strategy_fixture, description=ps_description, name=ps_name, protocol=protocol,
-                 providers=ps_providers, provider_args=ps_provider_args, child_provider=ps_child_provider,
-                 service_name_filter=ps_filter, service_name_rewrites=ps_rewrites)
+    psf = replace(profile_strategy_fixture, description=ps_description, name=ps_name, protocol=protocol,
+                  providers=ps_providers, provider_args=ps_provider_args, child_provider=ps_child_provider,
+                  service_name_filter=ps_filter, service_name_rewrites=ps_rewrites)
     # - node
     node_ref, provider, mux, from_hint, address, service_name, children, warnings, errors = \
         ('fake_ref', 'provider', 'bar_mux', True, 'baz_add', 'buz_name', {'qux': 'child'},
          {'quux_warn': True}, {'quuz_err': True})
-    node_fixture.profile_strategy = cs
+    node_fixture.profile_strategy = psf
     node_fixture.provider = provider
     node_fixture.protocol = protocol
     node_fixture.protocol_mux = mux
@@ -214,7 +218,8 @@ def test_dump_case_objects(cli_args_fixture, tmp_json_dumpfile, node_fixture, pr
 
     # act
     export_json.dump(tree, tmp_json_dumpfile)
-    loaded = json.load(open(tmp_json_dumpfile))
+    with open(tmp_json_dumpfile, encoding='utf8') as tmp_file:
+        loaded = json.load(tmp_file)
     loaded_tree = loaded.get('tree')
     node_dict = loaded_tree.get(node_ref)
 

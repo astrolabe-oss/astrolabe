@@ -19,7 +19,7 @@ from typing import NamedTuple, Dict, List
 from termcolor import colored
 from yaml import safe_load
 
-from . import constants
+from astrolabe import constants
 
 
 # using this instead of a namedtuple for ease of json serialization/deserialization
@@ -44,7 +44,7 @@ class WebYamlException(Exception):
     """Errors parsing web.yaml file"""
 
 
-_network_file = 'network.yaml'
+_NETWORK_FILE = 'network.yaml'
 _hints:  Dict[str, List[Hint]] = {}
 _protocols: Dict[str, Protocol] = {}
 _skip_service_names: List[str] = []
@@ -59,7 +59,7 @@ _protocols['HNT'] = PROTOCOL_HINT
 
 def init():
     """It initializes the network from network.yaml"""
-    with open(os.path.join(constants.ASTROLABE_DIR, _network_file), 'r', encoding='utf-8') as stream:
+    with open(os.path.join(constants.ASTROLABE_DIR, _NETWORK_FILE), 'r', encoding='utf-8') as stream:
         configs = _parse_yaml_config(stream)
         _parse_protocols(configs)
         _parse_skips(configs)
@@ -72,7 +72,7 @@ def init():
                     _hints[service_name] = [Hint(**dict(dct, **{'protocol': get_protocol(dct['protocol'])}))
                                             for dct in lst]
                 except TypeError:
-                    print(colored(f"Hints malformed in {_network_file}.  Fields expected: {Hint._fields}",
+                    print(colored(f"Hints malformed in {_NETWORK_FILE}.  Fields expected: {Hint._fields}",
                                   'red'))
                     print(colored(lst, 'yellow'))
                     sys.exit(1)
@@ -84,8 +84,8 @@ def init():
 def _parse_yaml_config(stream) -> Dict[str, dict]:
     try:
         return safe_load(stream)
-    except Exception as e:
-        raise WebYamlException(f"Unable to load yaml {_network_file}") from e
+    except Exception as exc:
+        raise WebYamlException(f"Unable to load yaml {_NETWORK_FILE}") from exc
 
 
 def _parse_protocols(configs: Dict[str, dict]) -> None:
@@ -95,8 +95,8 @@ def _parse_protocols(configs: Dict[str, dict]) -> None:
     try:
         for protocol, attrs in configs.get('protocols').items():
             _protocols[protocol] = Protocol(ref=protocol, **attrs)
-    except Exception as e:
-        raise WebYamlException(f"protocols malformed in {_network_file}") from e
+    except Exception as exc:
+        raise WebYamlException(f"protocols malformed in {_NETWORK_FILE}") from exc
 
 
 def _parse_skips(configs: Dict[str, dict]) -> None:
@@ -120,10 +120,10 @@ def hints(service_name: str) -> List[Hint]:
 def get_protocol(ref: str) -> Protocol:
     try:
         return _protocols[ref]
-    except KeyError as e:
+    except KeyError as exc:
         print(colored(f"Protocol {ref} not found!  Please validate your configurations in "
-                      f"{constants.ASTROLABE_DIR}",'red'))
-        raise e
+                      f"{constants.ASTROLABE_DIR}", 'red'))
+        raise exc
 
 
 def _validate() -> None:

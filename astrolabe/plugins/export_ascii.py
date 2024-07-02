@@ -15,9 +15,10 @@ import asyncio
 import sys
 from collections import namedtuple
 from dataclasses import asdict
+from typing import List, Dict
+
 from termcolor import colored
 from termcolor.termcolor import Color
-from typing import List, Dict
 
 from astrolabe import constants, logs, exporters
 from astrolabe.node import Node
@@ -47,8 +48,8 @@ class ExporterAscii(exporters.ExporterInterface):
 live_export_lock = asyncio.Lock()
 Ancestor = namedtuple('Ancestor', 'last_sibling spacing')
 
-_sleep_for_humans_seconds: float = .01
-_sleep_for_humans_counter = 0
+_SLEEP_FOR_HUMANS_SECONDS: float = .01
+_SLEEP_FOR_HUMANS_COUNTER = 0
 
 
 async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.stderr,
@@ -110,19 +111,19 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
             await asyncio.sleep(.1)
 
         if constants.ARGS.debug:
-            logs.logger.debug("Waiting for discover to complete for %d nodes at depth %d..."
-                              , len(nodes_to_export), len(parents))
+            logs.logger.debug("Waiting for discover to complete for %d nodes at depth %d...",
+                              len(nodes_to_export), len(parents))
             logs.logger.debug(nodes_to_export)
             await asyncio.sleep(5)
 
 
 def _get_sleep_for_humans_seconds() -> float:
-    global _sleep_for_humans_counter, _sleep_for_humans_seconds
-    if _sleep_for_humans_counter == 100:
-        _sleep_for_humans_seconds /= 1.2
-        _sleep_for_humans_counter = 0
-    _sleep_for_humans_counter += 1
-    return _sleep_for_humans_seconds
+    global _SLEEP_FOR_HUMANS_COUNTER, _SLEEP_FOR_HUMANS_SECONDS
+    if _SLEEP_FOR_HUMANS_COUNTER == 100:
+        _SLEEP_FOR_HUMANS_SECONDS /= 1.2
+        _SLEEP_FOR_HUMANS_COUNTER = 0
+    _SLEEP_FOR_HUMANS_COUNTER += 1
+    return _SLEEP_FOR_HUMANS_SECONDS
 
 
 def _export_node_display_prefix(parents: List[Ancestor]) -> str:
@@ -223,7 +224,7 @@ def _export_node_errs_warns(node: Node, error_prefix: str, out):
     warning_messages = {
         'DEFUNCT': f"service '{node.service_name}' configuration present on parent, but it not in use!",
         'NAME_LOOKUP_FAILED': f"AWS name lookup failed for :'{_synthesize_node_ref(node, 'UNKNOWN')}'"
-                             f" at address: '{node.address}'"
+                              f" at address: '{node.address}'"
     }
 
     # warnings verbose display
@@ -257,8 +258,8 @@ async def _wait_for_service_names(nodes: Dict[str, Node], depth: int) -> None:
 
         if constants.ARGS.debug:
             remaining = _remaining_nodes_for_debugging(nodes)
-            logs.logger.debug("Waiting for remaining %d service names before exporting ascii at depth %d..."
-                              , len(remaining), depth)
+            logs.logger.debug("Waiting for remaining %d service names before exporting ascii at depth %d...",
+                              len(remaining), depth)
             logs.logger.debug(remaining)
             await asyncio.sleep(5)
     else:

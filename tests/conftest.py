@@ -1,8 +1,9 @@
 import asyncio
 import os
-import pytest
 from dataclasses import replace
 from typing import Dict, List
+
+import pytest
 
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.network import Protocol

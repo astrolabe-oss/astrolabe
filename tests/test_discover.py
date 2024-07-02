@@ -1,16 +1,16 @@
 """
 Notes:
-    - `lookup_name` is stubbed with a dummy return value for many tests - because `discover` will not (should not) proceed
-        to the `profile` portion of discovering if a name is not returned by `lookup_name`
+    - `lookup_name` is stubbed with a dummy return value for many tests - because `discover` will not (should not)
+        proceed to the `profile` portion of discovering if a name is not returned by `lookup_name`
     - "ps_mock" fixture is passed to many tests here and appears unused.  however it is a required fixture for tests
         to be valid since the fixture code itself will patch the profile_strategy object into the code flow in the test
 """
-from astrolabe import discover, node
-from astrolabe.providers import TimeoutException
-
 import asyncio
-import pytest
 from unittest.mock import MagicMock
+import pytest
+
+from astrolabe.providers import TimeoutException
+from astrolabe import discover, node
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +21,7 @@ def clear_caches():
 
 
 @pytest.fixture(autouse=True)
-def set_default_timeout(builtin_providers, cli_args_mock):
+def set_default_timeout(cli_args_mock):
     cli_args_mock.timeout = 30
 
 
@@ -39,7 +39,7 @@ def provider_mock(mocker, mock_provider_ref) -> MagicMock:
     return provider_mock
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def ps_mock(protocol_fixture, mocker, mock_provider_ref) -> MagicMock:
     """it is a required fixture to include, whether or not it is used explicitly, in or to mock profile"""
     ps_mock = mocker.patch('astrolabe.profile_strategy.ProfileStrategy', autospec=True)
@@ -110,7 +110,7 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
 
 
 @pytest.mark.asyncio
-async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, provider_mock, ps_mock, mocker):
+async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, provider_mock, mocker):
     """If a node should be skipped due to protocol_mux, we do not even open the connection and we set an error."""
     # arrange
     skip_function = mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
@@ -127,7 +127,7 @@ async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, pro
 
 
 @pytest.mark.asyncio
-async def test_discover_case_open_connection_handles_timeout_exception(tree, provider_mock, ps_mock):
+async def test_discover_case_open_connection_handles_timeout_exception(tree, provider_mock):
     """Respects the contractual TimeoutException or ProviderInterface.  If thrown we set TIMEOUT error
     but do not stop discovering"""
     # arrange
@@ -142,7 +142,7 @@ async def test_discover_case_open_connection_handles_timeout_exception(tree, pro
 
 
 @pytest.mark.asyncio
-async def test_discover_case_open_connection_handles_timeout(tree, provider_mock, ps_mock, cli_args_mock, mocker):
+async def test_discover_case_open_connection_handles_timeout(tree, provider_mock, cli_args_mock):
     """A natural timeout during ProviderInterface::open_connections is also handled by setting TIMEOUT error"""
     # arrange
     cli_args_mock.timeout = .1
@@ -160,7 +160,7 @@ async def test_discover_case_open_connection_handles_timeout(tree, provider_mock
 
 
 @pytest.mark.asyncio
-async def test_discover_case_open_connection_handles_exceptions(tree, provider_mock, ps_mock):
+async def test_discover_case_open_connection_handles_exceptions(tree, provider_mock):
     """Handle any other exceptions thrown by ProviderInterface::open_connection by exiting the program"""
     # arrange
     provider_mock.open_connection.side_effect = Exception('BOOM')
@@ -189,12 +189,12 @@ async def test_discover_case_lookup_name_uses_cache(tree, node_fixture_factory, 
 
 
 @pytest.mark.asyncio
-async def test_discover_case_lookup_name_handles_timeout(tree, provider_mock, ps_mock, cli_args_mock, mocker):
+async def test_discover_case_lookup_name_handles_timeout(tree, provider_mock, cli_args_mock):
     """Timeout is handled during lookup_name and results in a sys.exit"""
     # arrange
     cli_args_mock.timeout = .1
 
-    async def slow_lookup_name(address):
+    async def slow_lookup_name(address):  # pylint:disable=unused-argument  # it has to be this way
         await asyncio.sleep(1)
     provider_mock.lookup_name = slow_lookup_name
 
@@ -204,7 +204,7 @@ async def test_discover_case_lookup_name_handles_timeout(tree, provider_mock, ps
 
 
 @pytest.mark.asyncio
-async def test_discover_case_lookup_name_handles_exceptions(tree, provider_mock, ps_mock):
+async def test_discover_case_lookup_name_handles_exceptions(tree, provider_mock):
     """Any exceptions thrown by lookup_name are handled by exiting the program"""
     # arrange
     provider_mock.lookup_name.side_effect = Exception('BOOM')
@@ -214,6 +214,7 @@ async def test_discover_case_lookup_name_handles_exceptions(tree, provider_mock,
         await discover.discover(tree, [])
 
 
+# pylint:disable=too-many-arguments
 # Calls to ProviderInterface::profile
 @pytest.mark.asyncio
 @pytest.mark.parametrize('name,profile_expected,warning', [(None, True, 'NAME_LOOKUP_FAILED'), ('foo', True, None)])
@@ -233,7 +234,7 @@ async def test_discover_case_profile_based_on_name(name, profile_expected, warni
 
 
 @pytest.mark.asyncio
-async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock, ps_mock):
+async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock):
     """We should not profile for node with any arbitrary error"""
     # arrange
     provider_mock.lookup_name.return_value = 'dummy_name'
@@ -271,26 +272,26 @@ async def test_discover_case_profile_uses_cache(tree, node_fixture_factory, prov
 
 
 @pytest.mark.asyncio
-async def test_discover_case_profile_handles_timeout(tree, provider_mock, ps_mock, cli_args_mock, mocker):
+async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_args_mock):
     """Timeout is respected during profile and results in a sys.exit"""
     # arrange
     cli_args_mock.timeout = .1
 
-    async def slow_profile(address, connection):
+    async def slow_profile(address, connection):  # pylint:disable=unused-argument  # it has to be this way
         await asyncio.sleep(1)
     provider_mock.lookup_name.return_value = 'dummy'
     provider_mock.profile.side_effect = slow_profile
     ps_mock.providers = [provider_mock.ref()]
 
     # act/assert
-    with pytest.raises(SystemExit) as e:
+    with pytest.raises(SystemExit) as _:
         await discover.discover(tree, [])
 
     assert True
 
 
 @pytest.mark.asyncio
-async def test_discover_case_profile_handles_exceptions(tree, provider_mock, ps_mock, cli_args_mock, mocker):
+async def test_discover_case_profile_handles_exceptions(tree, provider_mock, cli_args_mock):
     """Any exceptions thrown by profile are handled by exiting the program"""
     # arrange
     cli_args_mock.timeout = .1
@@ -304,7 +305,7 @@ async def test_discover_case_profile_handles_exceptions(tree, provider_mock, ps_
 
 # handle Cycles
 @pytest.mark.asyncio
-async def test_discover_case_cycle(tree, provider_mock, ps_mock):
+async def test_discover_case_cycle(tree, provider_mock):
     """Cycles should be detected, name lookup should still happen for them, but profile should not"""
     # arrange
     cycle_service_name = 'foops_i_did_it_again'
@@ -394,7 +395,7 @@ async def test_discover_case_children_with_address_discovered(tree, provider_moc
 
 
 @pytest.mark.asyncio
-async def test_discover_case_children_without_address_not_profiled(tree, provider_mock, ps_mock, mocker):
+async def test_discover_case_children_without_address_not_profiled(tree, provider_mock, mocker):
     """Discovered children without an address are not recursively profiled """
     # arrange
     child_nt = node.NodeTransport('dummy_protocol_mux', None)
@@ -452,7 +453,7 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
 
 # respect CLI args
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_skip_protocol_mux(tree, provider_mock, ps_mock, cli_args_mock, mocker):
+async def test_discover_case_respect_cli_skip_protocol_mux(tree, provider_mock, cli_args_mock, mocker):
     """Children discovered on these muxes are neither included in the tree - nor discovered"""
     # arrange
     skip_this_protocol_mux = 'foo_mux'
@@ -538,7 +539,7 @@ async def test_discover_case_respect_cli_skip_nonblocking_grandchildren(child_bl
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_max_depth(tree, node_fixture, provider_mock, ps_mock, cli_args_mock):
+async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args_mock):
     """We should not profile if max-depth is exceeded"""
     # arrange
     cli_args_mock.max_depth = 0
@@ -552,7 +553,7 @@ async def test_discover_case_respect_cli_max_depth(tree, node_fixture, provider_
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_obfuscate(tree, node_fixture, ps_mock, provider_mock, cli_args_mock):
+async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args_mock):
     """We need to test a child for protocol mux obfuscation since the tree is already populated with a fully hydrated
         Node - which is past the point of obfuscation"""
     # arrange
@@ -610,7 +611,7 @@ async def test_discover_case_respect_ps_service_name_rewrite(tree, provider_mock
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_network_skip(tree, provider_mock, ps_mock, mocker):
+async def test_discover_case_respect_network_skip(tree, provider_mock, mocker):
     """Skip service name is respected for network"""
     # arrange
     service_name = 'foo_name'

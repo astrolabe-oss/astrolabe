@@ -14,15 +14,16 @@ System Requirements:
 - requires system installation of graphviz package
 """
 
-from graphviz import Digraph
 from typing import Dict
+
+from graphviz import Digraph
 
 from astrolabe import constants, exporters
 from astrolabe.node import Node
 
 nodes_compiled = {}
 edges_compiled = []
-dot = None
+DOT = None
 
 GRAPHVIZ_RANKDIR_AUTO = 'auto'
 GRAPHVIZ_RANKDIR_TOP_TO_BOTTOM = 'TB'
@@ -70,20 +71,20 @@ def export_tree(tree: Dict[str, Node], source: bool = False) -> None:
     :param source: export output as graphviz source code (dot)
     :return:
     """
-    global dot
-    dot = Digraph()
-    dot.node_attr['shape'] = 'box'
-    dot.graph_attr['dpi'] = '300'
-    dot.graph_attr['rankdir'] = _determine_rankdir()
+    global DOT
+    DOT = Digraph()
+    DOT.node_attr['shape'] = 'box'
+    DOT.graph_attr['dpi'] = '300'
+    DOT.graph_attr['rankdir'] = _determine_rankdir()
     for node_ref, node in tree.items():
         _compile_digraph(node_ref, node)
     if source:
-        print(dot.source)
+        print(DOT.source)
     else:
-        dot.subgraph()
+        DOT.subgraph()
         seed_names = ','.join([node.service_name for node in tree.values() if node.service_name is not None])
         seeds = seed_names or ','.join(constants.ARGS.seeds).replace('.', '-')
-        dot.render(f"astroviz_{seeds}", directory=constants.OUTPUTS_DIR, view=True, format='png', cleanup=True)
+        DOT.render(f"astroviz_{seeds}", directory=constants.OUTPUTS_DIR, view=True, format='png', cleanup=True)
 
     # clear cache - i am not sure if this is needed any more and was likely due to a user error on my part - pk
     global nodes_compiled, edges_compiled
@@ -128,9 +129,9 @@ def _compile_digraph(node_ref: str, node: Node, blocking_from_top: bool = True) 
 
 
 def _compile_edge(parent_name: str, child: Node, child_name: str, child_blocking_from_top: bool) -> None:
-    parent_or_child_is_highlighted = constants.ARGS.export_graphviz_highlight_services and \
-                                     any(parent_name.startswith(name) or child_name.startswith(name) for
-                                              name in constants.ARGS.export_graphviz_highlight_services)
+    parent_or_child_is_highlighted = (constants.ARGS.export_graphviz_highlight_services and
+                                      any(parent_name.startswith(name) or child_name.startswith(name)
+                                          for name in constants.ARGS.export_graphviz_highlight_services))
     edge_str = f"{parent_name}.{child.protocol.ref}.{child_name}"
     if edge_str not in edges_compiled:
         defunct = child.warnings.get('DEFUNCT')
@@ -143,7 +144,7 @@ def _compile_edge(parent_name: str, child: Node, child_name: str, child_blocking
         edge_weight = '3' if defunct or child.from_hint else None
         errs_warns = ','.join({**child.errors, **child.warnings, **({'HINT': True} if child.from_hint else {})})
         label = f"{child.protocol.ref}{' (' + errs_warns + ')' if errs_warns else ''}"
-        dot.edge(parent_name, child_name, label, style=edge_style, color=edge_color,
+        DOT.edge(parent_name, child_name, label, style=edge_style, color=edge_color,
                  penwidth=edge_weight)
         edges_compiled.append(edge_str)
 
@@ -153,7 +154,7 @@ def _compile_node(node: Node, name: str, blocking_from_top: bool) -> None:
         style = 'bold' if blocking_from_top else None
         shape = 'cylinder' if node.is_database() else 'septagon' if node.containerized else None
         color = 'red' if node.errors else 'darkorange' if node.warnings else None
-        dot.node(name, shape=shape, style=style, color=color)
+        DOT.node(name, shape=shape, style=style, color=color)
         nodes_compiled[name] = {'blocking_from_top': blocking_from_top}
 
 

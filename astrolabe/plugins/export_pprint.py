@@ -11,8 +11,9 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-from astrolabe import constants, node, exporters
 from typing import Dict
+
+from astrolabe import constants, node, exporters
 
 
 class ExporterPPrint(exporters.ExporterInterface):

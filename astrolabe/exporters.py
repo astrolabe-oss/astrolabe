@@ -12,12 +12,13 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-import configargparse
 import re
 from typing import Dict, List
 
-from .node import Node
-from .plugin_core import PluginInterface, PluginFamilyRegistry
+import configargparse
+
+from astrolabe.node import Node
+from astrolabe.plugin_core import PluginInterface, PluginFamilyRegistry
 
 
 class ExporterArgParser:

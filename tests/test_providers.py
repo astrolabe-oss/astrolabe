@@ -5,7 +5,7 @@ from astrolabe import providers, node
 
 @pytest.fixture(autouse=True)
 def disable_builtin_providers(builtin_providers, cli_args_mock):
-    cli_args_mock.disable_providers=builtin_providers
+    cli_args_mock.disable_providers = builtin_providers
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ class TestProviderInterface:
         assert [] == await provider_interface.profile('dummy', None)
 
 
-def test_init_case_builtin_providers_disableable(cli_args_mock, builtin_providers, mocker):
+def test_init_case_builtin_providers_disableable(cli_args_mock, builtin_providers):
     # arrange
     cli_args_mock.disable_providers = builtin_providers
 
@@ -65,7 +65,6 @@ def test_parse_profile_strategy_response_case_no_mux():
     # arrange
     protocol_mux = 'foo'
     profile_strategy_response = f"address\n{protocol_mux}"
-    expected = [node.NodeTransport(protocol_mux)]
 
     # act/assert
     with pytest.raises(providers.CreateNodeTransportException):
@@ -85,33 +84,10 @@ def test_parse_profile_strategy_response_case_mux_only():
 def test_parse_profile_strategy_response_case_all_fields():
     # arrange
     metadata_1_key, metadata_1_val = 'pet', 'dog'
-    mux, address, id, conns, metadata = 'foo', 'bar', 'baz', '100', f'{metadata_1_key}={metadata_1_val}'
+    mux, address, _id, conns, metadata = 'foo', 'bar', 'baz', '100', f'{metadata_1_key}={metadata_1_val}'
     profile_strategy_response = f"mux address id conns metadata\n" \
-                              f"{mux} {address} {id} {conns} {metadata}"
-    expected = [node.NodeTransport(mux, address, id, int(conns), {metadata_1_key: metadata_1_val})]
+                                f"{mux} {address} {_id} {conns} {metadata}"
+    expected = [node.NodeTransport(mux, address, _id, int(conns), {metadata_1_key: metadata_1_val})]
 
     # act/assert
     assert providers.parse_profile_strategy_response(profile_strategy_response, '', '') == expected
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

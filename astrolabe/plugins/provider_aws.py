@@ -17,11 +17,12 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-import boto3
 import sys
+from typing import List
+
+import boto3
 from botocore.exceptions import ClientError
 from termcolor import colored
-from typing import List, Optional
 
 from astrolabe import constants, logs
 from astrolabe.node import NodeTransport
@@ -30,8 +31,8 @@ from astrolabe.providers import ProviderInterface
 from astrolabe.plugin_core import PluginArgParser
 from astrolabe.discover import dns_cache
 
-tag_name_pos = 0
-tag_value_pos = 1
+TAG_NAME_POS = 0
+TAG_VALUE_POS = 1
 
 
 class ProviderAWS(ProviderInterface):
@@ -41,7 +42,7 @@ class ProviderAWS(ProviderInterface):
         self.ec2_client = boto3.client('ec2')
         self.rds_client = boto3.client('rds')
         self.elasticache_client = boto3.client('elasticache')
-        self.tag_filters = {tag_filter.split('=')[tag_name_pos]: tag_filter.split('=')[tag_value_pos]
+        self.tag_filters = {tag_filter.split('=')[TAG_NAME_POS]: tag_filter.split('=')[TAG_VALUE_POS]
                             for tag_filter in constants.ARGS.aws_tag_filters}
         self._inventory_rds()
         self._inventory_elasticache()
@@ -56,7 +57,7 @@ class ProviderAWS(ProviderInterface):
                                                   'This will override the AWS_PROFILE environment variable.')
         argparser.add_argument('--service-name-tag', required=True, metavar='TAG',
                                help='AWS tag associated with service name')
-        argparser.add_argument('--tag-filters', nargs='*',  metavar='FILTER', default = [],
+        argparser.add_argument('--tag-filters', nargs='*',  metavar='FILTER', default=[],
                                help='Additional AWS tags to filter on or services.  Specified in format: '
                                     '"TAG_NAME=VALUE" pairs')
 
@@ -81,20 +82,20 @@ class ProviderAWS(ProviderInterface):
                 MaxResults=5
 
             )
-        except ClientError as e:
-            _die(e)
+        except ClientError as exc:
+            _die(exc)
 
         # parse name from response
         try:
-            ip = response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
-        except (KeyError, IndexError) as e:
+            ipaddr = response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
+        except (KeyError, IndexError) as exc:
             print(colored("ec2 describe-instances response was insufficient for instance lookup", 'red'))
-            print(colored(f"- {e}", 'yellow'))
+            print(colored(f"- {exc}", 'yellow'))
             constants.PP.pprint(colored(filters, 'yellow'))
             constants.PP.pprint(colored(response, 'yellow'))
-            raise e
+            raise exc
 
-        return ip
+        return ipaddr
 
     def _parse_filters(self, service_name: str) -> List[dict]:
         """
@@ -137,8 +138,8 @@ class ProviderAWS(ProviderInterface):
                     dns_cache[address] = cluster_name
 
 
-def _die(e):
+def _die(err):
     print(colored('AWS boto3 Authentication Failed!  Please check your aws credentials, have you set AWS_PROFILE?',
                   'red'))
-    print(colored(f"- {e}", 'yellow'))
+    print(colored(f"- {err}", 'yellow'))
     sys.exit(1)

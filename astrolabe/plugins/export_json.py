@@ -63,8 +63,8 @@ def load(file):
     :param file:
     :return:
     """
-    with open(file, encoding="utf8") as f:
-        loaded = json.load(f, object_hook=_deserialize_object)
+    with open(file, encoding="utf8") as open_file:
+        loaded = json.load(open_file, object_hook=_deserialize_object)
         constants.ARGS.max_depth = int(loaded['args']['max_depth'])
         constants.ARGS.skip_nonblocking_grandchildren = loaded['args']['skip_nonblocking_grandchildren']
 

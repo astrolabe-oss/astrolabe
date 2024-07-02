@@ -15,18 +15,20 @@ SPDX-License-Identifier: Apache-2.0
 __version__ = "0.0.1"
 
 import asyncio
-import configargparse
 import getpass
 import logging
 import os
 import signal
 import sys
 from contextlib import contextmanager
-from termcolor import colored
 from typing import Dict
 
-from . import profile_strategy, network, cli_args, constants, discover, logs, node, plugin_core, providers, exporters
-from .plugins import export_json, export_ascii
+import configargparse
+from termcolor import colored
+
+from astrolabe import (profile_strategy, network, cli_args, constants, discover, logs, node, plugin_core, providers,
+                       exporters)
+from astrolabe.plugins import export_json, export_ascii
 
 
 # python3 check
@@ -136,9 +138,9 @@ class DiscoverCommand(Command):
 
 
 def _cli_command() -> Command:
-    if cli_args.command_export == constants.ARGS.command:
+    if cli_args.COMMAND_EXPORT == constants.ARGS.command:
         return ExportCommand(cli_args.export_subparser)
-    elif cli_args.command_discover == constants.ARGS.command:
+    elif cli_args.COMMAND_DISCOVER == constants.ARGS.command:
         return DiscoverCommand(cli_args.discover_subparser)
     else:
         print(colored(f"Invalid command: {constants.ARGS.command}.  Please file bug with maintainer.", 'red'))

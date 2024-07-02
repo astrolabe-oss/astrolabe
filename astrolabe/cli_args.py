@@ -17,8 +17,8 @@ from typing import List, Optional
 import configargparse
 
 
-command_discover = 'discover'
-command_export = 'export'
+COMMAND_DISCOVER = 'discover'
+COMMAND_EXPORT = 'export'
 argparser: Optional[configargparse.ArgParser] = None
 discover_subparser: Optional[configargparse.ArgParser] = None
 export_subparser: Optional[configargparse.ArgParser] = None
@@ -44,13 +44,13 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
         return ConciseHelpFormatter(prog, max_help_position=100, width=200)
     # subparsers
     subparsers = argparser.add_subparsers(
-        help=f'Please select an acceptable command for astrolabe: "{command_discover}" or "{command_export}"'
+        help=f'Please select an acceptable command for astrolabe: "{COMMAND_DISCOVER}" or "{COMMAND_EXPORT}"'
     )
     subparsers.required = True
     subparsers.dest = 'command'
-    discover_p = subparsers.add_parser(command_discover, help='Crawl a network of services - given a seed',
+    discover_p = subparsers.add_parser(COMMAND_DISCOVER, help='Crawl a network of services - given a seed',
                                        formatter_class=formatter_class, default_config_files=['./astrolabe.conf'])
-    export_p = subparsers.add_parser(command_export, help='Export results of a previous discover',
+    export_p = subparsers.add_parser(COMMAND_EXPORT, help='Export results of a previous discover',
                                      formatter_class=formatter_class)
     discover_subparser = discover_p
     export_subparser = export_p
@@ -65,32 +65,32 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
                                 f"[{','.join(registered_exporter_refs)}]")
         sub_p.add_argument('--debug', action='store_true', help='Log debug output to stderr')
         sub_p.add_argument('-c', '--config-file', is_config_file=True, metavar='FILE',
-                            help='Specify a config file path')
+                           help='Specify a config file path')
 
     # discover command args
     discover_p.add_argument('-s', '--seeds', required=True, nargs='+', metavar='SEED',
-                          help='Seed host(s) to begin discovering viz. an IP address or hostname.  '
-                               'Must be in the format: "provider:address".  '
-                               'e.g. "ssh:10.0.0.42" or "k8s:widget-machine-5b5bc8f67f-2qmkp')
+                            help='Seed host(s) to begin discovering viz. an IP address or hostname.  '
+                                 'Must be in the format: "provider:address".  '
+                                 'e.g. "ssh:10.0.0.42" or "k8s:widget-machine-5b5bc8f67f-2qmkp')
     discover_p.add_argument('-t', '--timeout', type=int, default=60, metavar='TIMEOUT',
-                          help='Timeout when discovering a node')
+                            help='Timeout when discovering a node')
     discover_p.add_argument('-d', '--max-depth', type=int, default=100, metavar='DEPTH',
                             help='Max tree depth to discover')
     discover_p.add_argument('-X', '--disable-providers', nargs='+', default=[], metavar='PROVIDER',
-                          help="Do not initialize or discover with these providers")
+                            help="Do not initialize or discover with these providers")
     discover_p.add_argument('-P', '--skip-protocols', nargs='+', default=[], metavar='PROTOCOL',
-                          help='A list of protocols to skip.  e.g. "NSQ PXY"')
+                            help='A list of protocols to skip.  e.g. "NSQ PXY"')
     discover_p.add_argument('-M', '--skip-protocol-muxes', nargs='+', default=[], metavar='MUX',
-                          help='Skip discovering for children on services with these '
-                               'names (name lookup will still happen)')
+                            help='Skip discovering for children on services with these '
+                                 'names (name lookup will still happen)')
     discover_p.add_argument('-G', '--skip-nonblocking-grandchildren', action='store_true',
-                          help='Skip discovering of nonblocking children unless they '
-                               'are direct children of the seed nodes')
+                            help='Skip discovering of nonblocking children unless they '
+                                 'are direct children of the seed nodes')
     discover_p.add_argument('-x', '--obfuscate', action='store_true',
-                          help="Obfuscate graph details.  Useful for sharing exported output outside of "
-                               "trusted organizations.")
+                            help="Obfuscate graph details.  Useful for sharing exported output outside of "
+                                 "trusted organizations.")
     discover_p.add_argument('-q', '--quiet', action='store_true',
-                          help='Do not export graph output to stdout while discovering')
+                            help='Do not export graph output to stdout while discovering')
 
     # export command args
     export_p.add_argument('-f', '--json-file', metavar='FILE',

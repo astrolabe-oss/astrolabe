@@ -63,6 +63,7 @@ class TestNode:
         # act/assert
         assert node_fixture.is_excluded(0)
 
+    # pylint:disable=too-many-arguments
     @pytest.mark.parametrize('depth,expected_excluded', [(0, False), (1, False), (2, True)])
     def test_is_excluded_case_skip_nonblocking_grandchildren(self, cli_args_mock, depth, expected_excluded,
                                                              node_fixture, mocker):

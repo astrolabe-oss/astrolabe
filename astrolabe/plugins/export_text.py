@@ -11,8 +11,9 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-from astrolabe import node, exporters
 from typing import Dict
+
+from astrolabe import node, exporters
 
 flat_relationships = {}
 

@@ -11,10 +11,11 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-import coolname
-import faker
 from dataclasses import replace
 from typing import Dict
+
+import coolname
+import faker
 
 from astrolabe.node import NodeTransport
 _obfuscated_service_names: Dict[str, str] = {}

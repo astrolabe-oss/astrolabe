@@ -3,7 +3,7 @@ from setuptools import setup
 
 version = re.search(
     r'^__version__\s*=\s*"(.*)"',
-    open('astrolabe/astrolabe.py').read(),
+    open('astrolabe/main.py').read(),
     re.M
 ).group(1)
 
@@ -21,7 +21,7 @@ setup(
     url="https://github.com/magellanbot/astrolabe",
     packages=['astrolabe', 'astrolabe.plugins'],
     entry_points={
-        "console_scripts": ['astrolabe = astrolabe.astrolabe:main']
+        "console_scripts": ['astrolabe = astrolabe.main:main']
     },
     install_requires=[
         'asyncssh~=2.14',

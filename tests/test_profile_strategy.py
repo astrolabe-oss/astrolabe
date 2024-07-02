@@ -1,7 +1,8 @@
 import os
-import pytest
-import yaml
 from dataclasses import replace
+import yaml
+
+import pytest
 
 from astrolabe import profile_strategy
 
@@ -34,11 +35,11 @@ class TestProfileStrategy:
         """Child provider determined correctly for type: 'matchAll'"""
         # arrange
         provider = 'foo'
-        cp = {
+        child_provider = {
             'type': 'matchAll',
             'provider': provider
         }
-        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=cp)
+        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
         # act/assert
         assert profile_strategy_fixture.determine_child_provider('dummy') == provider
@@ -47,13 +48,13 @@ class TestProfileStrategy:
     def test_determine_child_provider_case_match_port(self, profile_strategy_fixture, port, provider):
         """Child provider determined correctly per port for type: 'matchPort'"""
         # arrange
-        cp = {
+        child_provider = {
             'type': 'matchPort',
             'matches': {
                 int(port): provider
             }
         }
-        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=cp)
+        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
         # act/assert
         assert profile_strategy_fixture.determine_child_provider(port) == provider
@@ -63,7 +64,7 @@ class TestProfileStrategy:
     def test_determine_child_provider_case_match_address(self, profile_strategy_fixture, address, provider):
         """Child provider determined correctly per address for type: 'matchAddress'"""
         # arrange
-        cp = {
+        child_provider = {
             'type': 'matchAddress',
             'matches': {
                 '^foo$': 'bar',
@@ -72,7 +73,7 @@ class TestProfileStrategy:
                 '.*': 'qux'
             }
         }
-        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=cp)
+        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
         # act/assert
         assert profile_strategy_fixture.determine_child_provider('dummy_mux', address) == provider
@@ -81,13 +82,13 @@ class TestProfileStrategy:
         """Child provider determined correctly for type: 'matchAddress' with address == None"""
         # arrange
         provider = 'foo'
-        cp = {
+        child_provider = {
             'type': 'matchAddress',
             'matches': {
                 '.*': provider
             }
         }
-        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=cp)
+        profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
         # act/assert
         assert profile_strategy_fixture.determine_child_provider('dummy_mux', None) == provider
@@ -122,7 +123,7 @@ class TestProfileStrategy:
 
 
 # init()
-def test_init_case_inits_network(astrolabe_d, mocker):
+def test_init_case_inits_network(astrolabe_d, mocker):  # pylint:disable=unused-argument
     """Charlotte.init() spins up network"""
     # `astrolabe_d` referenced in test signature only for patching of the tmp dir - fixture unused in test function
     # arrange
@@ -135,11 +136,12 @@ def test_init_case_inits_network(astrolabe_d, mocker):
     init_func.assert_called()
 
 
+# pylint:disable=too-many-locals
 def test_init_case_wellformed_discoverstrategy_yaml(astrolabe_d, cli_args_mock, mocker):
     """Charlotte loads a well formed profile_strategy from yaml into memory"""
     # `astrolabe_d` referenced in test signature only for patching of the tmp dir - fixture unused in test function
     # arrange
-    name, description, providers, protocol, provider_args, child_provider, filter, rewrites = (
+    name, description, providers, protocol, provider_args, child_provider, flter, rewrites = (
         'Foo', 'Foo ProfileStrategy', ['bar'], 'BAZ', {'command': 'uptime'}, {'type': 'matchAll', 'provider': 'buz'},
         {'only': ['foo-service']}, {'ugly-foo': 'pretty-foo'}
     )
@@ -156,12 +158,12 @@ description: "{description}"
 protocol: "{protocol}"
 {yaml.dump({'providerArgs': provider_args})}
 {yaml.dump({'childProvider': child_provider})}
-{yaml.dump({'serviceNameFilter': filter})}
+{yaml.dump({'serviceNameFilter': flter})}
 {yaml.dump({'serviceNameRewrites': rewrites})}
 """
     fake_profile_strategy_yaml_file = os.path.join(astrolabe_d, 'Foo.yaml')
-    with open(fake_profile_strategy_yaml_file, 'w') as f:
-        f.write(fake_profile_strategy_yaml)
+    with open(fake_profile_strategy_yaml_file, 'w', encoding='utf8') as open_file:
+        open_file.write(fake_profile_strategy_yaml)
 
     # act
     profile_strategy.init()
@@ -175,6 +177,6 @@ protocol: "{protocol}"
     assert stub_protocol == parsed_cs.protocol
     assert provider_args == parsed_cs.provider_args
     assert child_provider == parsed_cs.child_provider
-    assert filter == parsed_cs.service_name_filter
+    assert flter == parsed_cs.service_name_filter
     assert rewrites == parsed_cs.service_name_rewrites
     get_protocol_func.assert_called_once_with('BAZ')

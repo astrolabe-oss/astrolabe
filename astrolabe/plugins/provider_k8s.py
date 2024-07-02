@@ -17,10 +17,11 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import sys
+from typing import Dict, List, Optional
+
 from kubernetes import client, config
 from kubernetes.stream import stream
 from termcolor import colored
-from typing import Dict, List, Optional
 
 from astrolabe import constants
 from astrolabe.network import Hint
@@ -72,8 +73,8 @@ class ProviderKubernetes(ProviderInterface):
         node_transports = []
         for container in containers:
             ret = stream(self.api.connect_get_namespaced_pod_exec, address, constants.ARGS.k8s_namespace,
-                         container=container.name, command=exec_command
-                         , stderr=True, stdin=False, stdout=True, tty=False)
+                         container=container.name, command=exec_command,
+                         stderr=True, stdin=False, stdout=True, tty=False)
             node_transports.extend(parse_profile_strategy_response(ret, address, shell_command))
         return node_transports
 

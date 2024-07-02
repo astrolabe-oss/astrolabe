@@ -13,13 +13,14 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-import configargparse
 from typing import List, Optional
 
-from . import constants, logs
-from .network import Hint
-from .node import NodeTransport
-from .plugin_core import PluginInterface, PluginFamilyRegistry
+import configargparse
+
+from astrolabe import constants, logs
+from astrolabe.network import Hint
+from astrolabe.node import NodeTransport
+from astrolabe.plugin_core import PluginInterface, PluginFamilyRegistry
 
 
 class TimeoutException(Exception):
@@ -97,8 +98,8 @@ class ProviderInterface(PluginInterface):
 
     async def profile(self, address: str, connection: Optional[type], **kwargs) -> List[NodeTransport]:
         """
-        Discover provider for downstream services using ProfileStrategy.  Default response when subclassing will be a no-op,
-        which allows provider subclasses to only implement aspects of this classes functionality a-la-cart style.
+        Discover provider for downstream services using ProfileStrategy.  Default response when subclassing will be a
+        no-op, which allows provider subclasses to only implement aspects of this classes functionality a-la-cart style.
         Please cache your results to improve system performance!
 
         :param address: address to discover

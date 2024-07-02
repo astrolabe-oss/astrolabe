@@ -11,13 +11,14 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
-from termcolor import colored
 from typing import Dict, List, Optional
-import configargparse
 import importlib
 import pkgutil
 import re
 import sys
+
+import configargparse
+from termcolor import colored
 
 import astrolabe.plugins
 
@@ -101,9 +102,9 @@ class PluginFamilyRegistry:
     def get_plugin(self, ref: str) -> PluginInterface:
         try:
             return self._plugin_registry[ref]
-        except KeyError as e:
+        except KeyError as exc:
             print(colored(f"Attempted to load invalid plugin: {ref}", 'red'))
-            print(colored(e, 'yellow'))
+            print(colored(exc, 'yellow'))
             sys.exit(1)
 
     def get_registered_plugin_refs(self) -> List[str]:

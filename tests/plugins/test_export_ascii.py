@@ -1,11 +1,12 @@
-from astrolabe.plugins import export_ascii
-from astrolabe.node import Node
-
 from dataclasses import replace
 from typing import Dict
 import asyncio
-import pytest
 import sys
+
+import pytest
+
+from astrolabe.plugins import export_ascii
+from astrolabe.node import Node
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +29,7 @@ def mock_termcolor_colored(mocker):
 def test_colored_force(mock_termcolor_colored):
     test_text = "Hello, World!"
     test_color = "red"
-    result = export_ascii.colored_force(test_text, test_color)
+    _ = export_ascii.colored_force(test_text, test_color)
     # Assert that termcolor_colored was called with the correct arguments
     mock_termcolor_colored.assert_called_once_with(test_text, test_color, force_color=True)
 
