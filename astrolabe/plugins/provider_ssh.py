@@ -27,10 +27,11 @@ from asyncssh import ChannelOpenError, SSHClientConnection
 from termcolor import colored
 
 from astrolabe import constants, logs
+from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.providers import ProviderInterface, TimeoutException, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
 from astrolabe.node import NodeTransport
-from astrolabe.discover import dns_cache, service_name_cache
+from astrolabe.discover import node_inventory_by_address, node_inventory_by_dnsname
 
 bastion: Optional[SSHClientConnection] = None
 CONNECT_TIMEOUT = 5
@@ -81,18 +82,18 @@ class ProviderSSH(ProviderInterface):
         logs.logger.debug("Running sidecars for address %s", address)
         await _sidecar_lookup_hostnames(address, connection)
 
-    async def profile(self, address: str, connection: SSHClientConnection, **kwargs) -> List[NodeTransport]:
+    async def profile(self, address: str, pfs: ProfileStrategy, connection: SSHClientConnection) -> List[NodeTransport]:
         try:
-            command = kwargs['shell_command']
+            command = pfs.provider_args['shell_command']
         except IndexError as exc:
             print(colored(f"Crawl Strategy incorrectly configured for provider SSH.  "
-                          f"Expected **kwargs['shell_command']. Got:{str(kwargs)}", 'red'))
+                          f"Expected **kwargs['shell_command']. Got:{str(pfs.provider_args)}", 'red'))
             raise exc
         response = await connection.run(command)
         if response.stdout.strip().startswith('ERROR:'):
             raise Exception("CRAWL ERROR: %s" %  # pylint: disable=broad-exception-raised
                             response.stdout.strip().replace("\n", "\t"))
-        return parse_profile_strategy_response(response.stdout.strip(), address, command)
+        return parse_profile_strategy_response(response.stdout.strip(), address, pfs.name)
 
 
 async def _get_connection(host: str, retry_num=0) -> asyncssh.SSHClientConnection:
@@ -239,12 +240,14 @@ async def _sidecar_lookup_hostnames(address: str, connection: SSHClientConnectio
     """we are cheating! for every instance we ssh into, we are going to try a name lookup
        to get the DNS names for anything in the astrolabe DNS Cache that we don't yet have
        """
-    for hostname, service_name in dns_cache.items():
+    for hostname, node in node_inventory_by_dnsname.items():
         sidecar_command = f"getent hosts {hostname} | awk '{{print $1}}'"
         logs.logger.debug(f"Running sidecar command: {sidecar_command} for address %s", address)
         async with CONNECTION_SEMAPHORE:
             result = await connection.run(sidecar_command, check=True)
-        ip_addr = result.stdout.strip() if result else None
-        if ip_addr and ip_addr not in service_name_cache:
-            logs.logger.debug(f"Discovered IP address for {hostname}: from address %s", address)
-            service_name_cache[ip_addr] = service_name
+        ip_addrs = result.stdout.strip() if result else None
+        for addr_bytes in ip_addrs.split('\n'):
+            address = str(addr_bytes)
+            if address and address not in node_inventory_by_address:
+                logs.logger.debug(f"Discovered IP %s for {hostname}: from address %s", addr_bytes, address)
+                node_inventory_by_address[address].service_name = node.service_name

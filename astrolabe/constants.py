@@ -20,6 +20,7 @@ OUTPUTS_DIR = 'outputs'
 PROVIDER_SSH = 'ssh'
 PROVIDER_HINT = 'hnt'
 PROVIDER_SEED = 'seed'
+PROVIDER_INV = 'inv'
 PP = pprint.PrettyPrinter(indent=4)
 
 # dependent constants

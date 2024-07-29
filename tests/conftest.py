@@ -79,8 +79,10 @@ def tree_stubbed_with_child(tree_stubbed, node_fixture) -> Dict[str, Node]:
     child = replace(node_fixture, service_name='bar')
     child.service_name = 'baz'
     child.children = {}
+    child.set_profile_timestamp()
     child.address = '5.6.7.8'
     seed.children = {'child_node': child}
+    seed.set_profile_timestamp()
 
     return tree_stubbed
 

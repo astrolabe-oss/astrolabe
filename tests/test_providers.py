@@ -36,11 +36,11 @@ class TestProviderInterface:
         assert [] == await provider_interface.take_a_hint(mock_hint)
 
     @pytest.mark.asyncio
-    async def test_profile(self, provider_interface):
+    async def test_profile(self, provider_interface, mocker):
         """Default behavior of provider is an acceptable return of [] for discovering.  It is optional"""
 
         # arrange/act/assert
-        assert [] == await provider_interface.profile('dummy', None)
+        assert [] == await provider_interface.profile('dummy', None, mocker.MagicMock())
 
 
 def test_init_case_builtin_providers_disableable(cli_args_mock, builtin_providers):

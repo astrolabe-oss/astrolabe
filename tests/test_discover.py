@@ -16,7 +16,9 @@ from astrolabe import discover, node
 @pytest.fixture(autouse=True)
 def clear_caches():
     """Clear discover.py caches between tests - otherwise our asserts for function calls may not pass"""
-    discover.service_name_cache = {}
+    discover.node_inventory_by_address = {}
+    discover.node_inventory_by_dnsname = {}
+    discover.node_inventory_null_name_by_address = []
     discover.child_cache = {}
 
 
@@ -105,8 +107,7 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
     # assert
     provider_mock.open_connection.assert_called_once_with(list(tree.values())[0].address)
     provider_mock.lookup_name.assert_called_once_with(list(tree.values())[0].address, stub_connection)
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, stub_connection,
-                                                  **stub_provider_args)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, ps_mock, stub_connection)
 
 
 @pytest.mark.asyncio
@@ -277,7 +278,7 @@ async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_ar
     # arrange
     cli_args_mock.timeout = .1
 
-    async def slow_profile(address, connection):  # pylint:disable=unused-argument  # it has to be this way
+    async def slow_profile(address, pfs, connection):  # pylint:disable=unused-argument  # it has to be this way
         await asyncio.sleep(1)
     provider_mock.lookup_name.return_value = 'dummy'
     provider_mock.profile.side_effect = slow_profile
@@ -418,7 +419,7 @@ async def test_discover_case_hint_attributes_set(tree, provider_mock, hint_mock,
     # arrange
     mocker.patch('astrolabe.network.hints', return_value=[hint_mock])
     hint_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address', 'dummy_debug_id')
-    provider_mock.take_a_hint.return_value = [hint_nt]
+    provider_mock.take_a_hint.side_effect = [[hint_nt], []]
     provider_mock.lookup_name.side_effect = ['dummy', None]
     providers_get_mock = mocker.patch('astrolabe.providers.get_provider_by_ref', return_value=provider_mock)
 
@@ -440,7 +441,7 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
     # arrange
     mocker.patch('astrolabe.network.hints', return_value=[hint_mock])
     hint_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address', 'dummy_debug_id')
-    provider_mock.take_a_hint.return_value = [hint_nt]
+    provider_mock.take_a_hint.side_effect = [[hint_nt], []]
     provider_mock.lookup_name.side_effect = ['dummy', None]
 
     # act
@@ -448,7 +449,9 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert list(list(tree.values())[0].children.values())[0].service_name == hint_nt.debug_identifier
+    parent_node = list(tree.values())[0]
+    hint_child_node = list(parent_node.children.values())[0]
+    assert hint_child_node.service_name == hint_nt.debug_identifier
 
 
 # respect CLI args

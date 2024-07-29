@@ -52,6 +52,7 @@ _skip_protocol_muxes: List[str] = []
 
 PROTOCOL_SEED = Protocol('SEED', 'Seed', True)
 PROTOCOL_HINT = Protocol('HNT', 'Hint', True)
+PROTOCOL_INVENTORY = Protocol('INV', 'Inventory', True)
 _builtin_protocols = {PROTOCOL_SEED, PROTOCOL_HINT}
 _protocols['SEED'] = PROTOCOL_SEED
 _protocols['HNT'] = PROTOCOL_HINT

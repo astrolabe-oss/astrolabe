@@ -153,12 +153,13 @@ class TestNode:
         # act/assert
         assert node_fixture.profile_complete(2)
 
-    @pytest.mark.parametrize('children,expected', [(None, False), ({}, True), ({'DUMMY': 'DUMMY'}, True)])
-    def test_profile_complete_case_children(self, children, expected, node_fixture, mocker):
-        """Crawl is complete when children dict is present.  Here `None` has a different meaning than `{}`"""
+    @pytest.mark.parametrize('timestamped,expected', [(None, False), (True, True)])
+    def test_profile_complete_case_profile_timestamp(self, timestamped, expected, node_fixture, mocker):
+        """Crawl is complete when profile timestamp stamped."""
         # arrange
         node_fixture.name_lookup_complete = mocker.Mock(return_value=True)
-        node_fixture.children = children
+        if timestamped:
+            node_fixture.set_profile_timestamp()
 
         # act/assert
         assert node_fixture.profile_complete(0) == expected

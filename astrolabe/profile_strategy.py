@@ -104,10 +104,37 @@ class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
 
 profile_strategies: typing.List[ProfileStrategy] = []
 _seed_profile_strategy_child_provider = {'type': 'matchAll', 'provider': constants.PROVIDER_SSH}
-SEED_DISCOVERY_STRATEGY = ProfileStrategy('Seed Discovery Strategy', 'Seed', network.PROTOCOL_SEED,
-                                          [constants.PROVIDER_SEED], '', _seed_profile_strategy_child_provider, {}, {})
-HINT_DISCOVERY_STRATEGY = ProfileStrategy('Hint Discovery Strategy', 'Hint', network.PROTOCOL_HINT,
-                                          [constants.PROVIDER_HINT], '', {}, {}, {})
+SEED_PROFILE_STRATEGY = ProfileStrategy(
+    description='Seed Discovery Strategy',
+    name='Seed',
+    protocol=network.PROTOCOL_SEED,
+    providers=[constants.PROVIDER_SEED],
+    provider_args='',
+    child_provider=_seed_profile_strategy_child_provider,
+    service_name_filter={},
+    service_name_rewrites={}
+)
+
+HINT_PROFILE_STRATEGY = ProfileStrategy(
+    description='Hint Discovery Strategy',
+    name='Hint',
+    protocol=network.PROTOCOL_HINT,
+    providers=[constants.PROVIDER_HINT],
+    provider_args='',
+    child_provider={},
+    service_name_filter={},
+    service_name_rewrites={}
+)
+INVENTORY_PROFILE_STRATEGY = ProfileStrategy(
+    description='Inventory Discovery Strategy',
+    name='Inventory',
+    protocol=network.PROTOCOL_INVENTORY,
+    providers=[constants.PROVIDER_HINT],
+    provider_args='',
+    child_provider={},
+    service_name_filter={},
+    service_name_rewrites={}
+)
 
 
 def init():

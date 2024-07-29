@@ -159,7 +159,7 @@ def _export_node(node: Node, depth: int, prefix: str, is_last_sibling: bool, out
     :return: None
     """
     # service name
-    service_name = node.service_name or 'UNKNOWN'
+    service_name = node.service_name or node.address
 
     # terminus
     if node.warnings.get('DEFUNCT'):
@@ -223,7 +223,7 @@ def _export_node_errs_warns(node: Node, error_prefix: str, out):
     }
     warning_messages = {
         'DEFUNCT': f"service '{node.service_name}' configuration present on parent, but it not in use!",
-        'NAME_LOOKUP_FAILED': f"AWS name lookup failed for :'{_synthesize_node_ref(node, 'UNKNOWN')}'"
+        'NAME_LOOKUP_FAILED': f"Name lookup failed for :'{_synthesize_node_ref(node, 'UNKNOWN')}'"
                               f" at address: '{node.address}'"
     }
 

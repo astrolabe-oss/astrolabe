@@ -13,12 +13,13 @@ SPDX-License-Identifier: Apache-2.0
 
 import json
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
 from typing import Dict
 
 from astrolabe import constants, exporters
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.network import Protocol
-from astrolabe.node import Node
+from astrolabe.node import Node, NodeType
 
 
 class ExporterJson(exporters.ExporterInterface):
@@ -34,8 +35,12 @@ class ExporterJson(exporters.ExporterInterface):
 class _EnhancedJSONEncoder(json.JSONEncoder):
     """Dataclass objects to not have native support for JSON serialization. This class allows for that"""
     def default(self, o):
+        if isinstance(o, NodeType):
+            return {'__type__': 'NodeType', 'value': o.value}
         if is_dataclass(o):
             return asdict(o)
+        if isinstance(o, datetime):
+            return {'__type__': 'datetime', 'value': o.isoformat()}
         return super().default(o)
 
 
@@ -51,6 +56,10 @@ def _deserialize_object(dct: dict):
         return ProfileStrategy(**dct)
     elif 'Protocol' == dct_type:
         return Protocol(**dct)
+    elif 'NodeType' == dct_type:
+        return NodeType(dct['value'])
+    elif 'datetime' == dct_type:
+        return datetime.fromisoformat(dct['value'])
 
     e_str = f"Unrecognized __type__: ({dct_type}) encountered during json deserialization"
     raise Exception(e_str)  # pylint: disable=broad-exception-raised

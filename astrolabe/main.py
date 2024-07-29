@@ -154,19 +154,20 @@ async def _discover_network():
 
 
 async def _discover_and_export_to_stderr_unless_quiet_is_specified(tree: Dict[str, node.Node]):
-    with open(os.devnull, 'w', encoding="utf-8") if constants.ARGS.quiet else sys.stderr as outfile:
-        discover_tasks = [
-            discover.discover(tree, []),
-            export_ascii.export_tree(tree, [], out=outfile, print_slowly_for_humans=True)
-        ]
-        await asyncio.gather(*discover_tasks)
+    # pylint:disable=consider-using-with  # open will close stderr when done, bad!
+    outfile = open(os.devnull, 'w', encoding="utf-8") if constants.ARGS.quiet else sys.stderr
+    discover_tasks = [
+        discover.discover(tree, []),
+        export_ascii.export_tree(tree, [], out=outfile, print_slowly_for_humans=True)
+    ]
+    await asyncio.gather(*discover_tasks)
 
 
 def _parse_seed_tree() -> Dict[str, node.Node]:
     return {
         f"SEED:{address}":
             node.Node(
-                profile_strategy=profile_strategy.SEED_DISCOVERY_STRATEGY,
+                profile_strategy=profile_strategy.SEED_PROFILE_STRATEGY,
                 protocol=network.PROTOCOL_SEED,
                 protocol_mux='seed',
                 provider=provider,

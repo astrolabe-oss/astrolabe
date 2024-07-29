@@ -13,9 +13,10 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import asyncio
+import ipaddress
 import sys
 import traceback
-from dataclasses import replace
+from dataclasses import replace, is_dataclass, fields
 from typing import Dict, List, Optional, Tuple
 
 from termcolor import colored
@@ -24,9 +25,10 @@ from astrolabe import profile_strategy, network, constants, logs, obfuscate, pro
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.node import Node, NodeTransport
 
-service_name_cache: Dict[str, Optional[str]] = {}  # {address: service_name}
+node_inventory_by_address: Dict[str, Node] = {}  # {address: Node()}
+node_inventory_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
+node_inventory_null_name_by_address: List[str] = []  # [address]
 child_cache: Dict[str, Dict[str, Node]] = {}  # {service_name: {node_ref, Node}}
-dns_cache: Dict[str, Optional[str]] = {}  # {dns_name: service_name}
 
 
 async def discover(tree: Dict[str, Node], ancestors: list):
@@ -34,8 +36,8 @@ async def discover(tree: Dict[str, Node], ancestors: list):
     logs.logger.debug("Found %s nodes to profile at depth: %d", str(len(tree)), depth)
 
     conns, tree = await _open_connections(tree, ancestors)
-    service_names, conns = await _lookup_service_names(tree, conns)
     await _run_sidecars(tree, conns)
+    service_names, conns = await _lookup_service_names(tree, conns)
     await _assign_names_and_detect_cycles(tree, service_names, ancestors)
 
     if len(ancestors) > constants.ARGS.max_depth - 1:
@@ -45,6 +47,35 @@ async def discover(tree: Dict[str, Node], ancestors: list):
     nodes_with_conns = [(item[0], item[1], conn) for item, conn in zip(tree.items(), conns)]
     profileable_nodes = _filter_unprofileable_nodes_and_add_warnings(nodes_with_conns, depth)
     await _recursively_profile(tree, profileable_nodes, depth, ancestors)
+
+
+def _merge_children_with_inventory_nodes(children: Dict[str, Node]) -> None:
+    """we want nodes in the tree and inventory to be the same memory space nodes, so
+          here we merge the tree node's attributes into the inventory node, and then
+          drop the tree node and replace it with the pointer to the inventory node"""
+    for ref, node in children.items():
+        if node.address in node_inventory_by_address:
+            inventory_node = node_inventory_by_address[node.address]
+            _merge_node(copyto_node=inventory_node, copyfrom_node=node)
+            # replace dictionary node with the inventory node to preserve memory linkage
+            children[ref] = inventory_node
+
+
+def _merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
+    if not is_dataclass(copyto_node) or not is_dataclass(copyfrom_node):
+        raise ValueError("Both copyto_node and copyfrom_node must be dataclass instances")
+
+    for field in fields(Node):
+        attr_name = field.name
+        inventory_preferred_attrs = ['provider', 'node_type']
+        if attr_name in inventory_preferred_attrs:
+            continue
+
+        copyfrom_value = getattr(copyfrom_node, attr_name)
+
+        # Only copy if the source value is not None, empty string, empty dict, or empty list
+        if copyfrom_value is not None and copyfrom_value != "" and copyfrom_value != {} and copyfrom_value != []:
+            setattr(copyto_node, attr_name, copyfrom_value)
 
 
 def _filter_unprofileable_nodes_and_add_warnings(nodes_with_conns: List[Tuple[str, Node, type]], 
@@ -67,12 +98,16 @@ async def _recursively_profile(tree: Dict[str, Node], profileable_nodes: List[Tu
         children_res, children_pending_tasks = await asyncio.wait(profile_tasks, return_when=asyncio.FIRST_COMPLETED)
         for future in children_res:
             node_ref, children = _get_profile_result_with_exception_handling(future)
+            node = tree[node_ref]
             child_depth = depth + 1
             nonexcluded_children = {ref: child for ref, child in children.items() if not child.is_excluded(child_depth)}
-            tree[node_ref].children = nonexcluded_children
-            children_with_address = {ref: child for ref, child in nonexcluded_children.items() if child.address}
+            _merge_children_with_inventory_nodes(nonexcluded_children)
+            logs.logger.debug("Merging %d existing children for %s", len(node.children), tree[node_ref].address)
+            node.children = {**node.children, **nonexcluded_children}  # merge with pre-profiled children
+            children_with_address = {ref: child for ref, child in node.children.items() if child.address}
             if children_with_address:
-                asyncio.ensure_future(discover(children_with_address, ancestors + [tree[node_ref].service_name]))
+                asyncio.ensure_future(discover(children_with_address, ancestors + [node.service_name]))
+            node.set_profile_timestamp()  # will indicate that Node.profile_complete() is complete
         profile_tasks = children_pending_tasks
 
 
@@ -80,7 +115,7 @@ async def _assign_names_and_detect_cycles(tree: Dict[str, Node], service_names: 
     for node_ref, service_name in zip(list(tree), service_names):
         if not service_name:
             logs.logger.debug("Name lookup failed for %s with address: %s", node_ref, tree[node_ref].address)
-            service_name_cache[tree[node_ref].address] = None
+            node_inventory_null_name_by_address.append(tree[node_ref].address)
             tree[node_ref].warnings['NAME_LOOKUP_FAILED'] = True
             continue
         service_name = tree[node_ref].profile_strategy.rewrite_service_name(service_name, tree[node_ref])
@@ -94,9 +129,8 @@ async def _assign_names_and_detect_cycles(tree: Dict[str, Node], service_names: 
 def _get_profile_result_with_exception_handling(future: asyncio.Future) -> (str, Dict[str, Node]):
     try:
         return future.result()
-    except TimeoutError:
-        sys.exit(1)
-    except Exception as exc:  # pylint:disable=broad-exception-caught
+    except asyncio.TimeoutError as exc:
+        print(exc, file=sys.stderr)
         traceback.print_tb(exc.__traceback__)
         sys.exit(1)
 
@@ -148,15 +182,17 @@ def _handle_connection_open_exceptions(exceptions: List[Tuple[str, Exception]], 
 
 
 async def _open_connection(address: str, provider: providers.ProviderInterface):
-    if address in service_name_cache:
-        if service_name_cache[address] is None:
-            logs.logger.debug("Not opening connection: name is None (%s)", address)
+    if address in node_inventory_null_name_by_address:
+        logs.logger.debug("Not opening connection: name is None (%s)", address)
+        return None
+
+    if address in node_inventory_by_address:
+        node = node_inventory_by_address[address]
+        if network.skip_service_name(node.address):
+            logs.logger.debug("Not opening connection: skip (%s)", node.address)
             return None
-        if network.skip_service_name(service_name_cache[address]):
-            logs.logger.debug("Not opening connection: skip (%s)", service_name_cache[address])
-            return None
-        if service_name_cache[address] in child_cache:
-            logs.logger.debug("Not opening connections: cached (%s)", service_name_cache[address])
+        if node.address in child_cache:
+            logs.logger.debug("Not opening connections: profile results cached (%s)", node.address)
             return None
 
     logs.logger.debug("Opening connection: %s", address)
@@ -167,7 +203,7 @@ async def _lookup_service_names(tree: Dict[str, Node], conns: list) -> (List[str
     # lookup_name / detect cycles
     service_names = await asyncio.gather(
         *[asyncio.wait_for(
-            _lookup_service_name(node.address, providers.get_provider_by_ref(node.provider), conn),
+            _lookup_service_name(node, providers.get_provider_by_ref(node.provider), conn),
             constants.ARGS.timeout) for node, conn in zip(tree.values(), conns)],
         return_exceptions=True
     )
@@ -207,21 +243,25 @@ async def _run_sidecars(tree: Dict[str, Node], conns: list) -> None:
             traceback.print_tb(exc.__traceback__)
             sys.exit(1)
         else:
+            print(exc)
             traceback.print_tb(exc.__traceback__)
             sys.exit(1)
 
 
-async def _lookup_service_name(address: str, provider: providers.ProviderInterface,
+async def _lookup_service_name(node: Node, provider: providers.ProviderInterface,
                                connection: type) -> Optional[str]:
-    if address in service_name_cache:
-        logs.logger.debug("Using cached service name (%s for: %s)", service_name_cache[address], address)
-        return service_name_cache[address]
+    address = node.address
+    if address in node_inventory_by_address and node_inventory_by_address[address].service_name:
+        logs.logger.debug("Using cached service name (%s for: %s)",
+                          node_inventory_by_address[address].service_name, address)
+        return node_inventory_by_address[address].service_name
 
     logs.logger.debug("Getting service name for address %s", address)
     service_name = await provider.lookup_name(address, connection)
     if service_name:
         logs.logger.debug("Discovered name: %s for address %s", service_name, address)
-        service_name_cache[address] = service_name
+        node.service_name = service_name
+        node_inventory_by_address[address] = node
         return service_name
 
     logs.logger.debug("Name discovery failed for address %s", address)
@@ -237,6 +277,7 @@ async def _run_sidecar(address: str, provider: providers.ProviderInterface,
     return True
 
 
+# pylint:disable=too-many-locals
 async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, service_name: str,
                               connection: type) -> (str, Dict[str, Node]):
     if service_name in child_cache:
@@ -265,11 +306,24 @@ async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, se
     children = {}
     for node_transports, prof_strategy in [(nts, cs) for nts, cs in zip(profile_results, profile_strategies) if nts]:
         for node_transport in node_transports:
+            if _skip_address(node_transport.address):
+                logs.logger.debug("Excluded profile result: `%s`. Reason: address_skipped",
+                                  node_transport.address)
+                continue
             if _skip_protocol_mux(node_transport.protocol_mux):
+                logs.logger.debug("Excluded profile result: `%s`. Reason: protocol_mux_skipped",
+                                  node_transport.protocol_mux)
                 continue
             child_ref, child = _create_node(prof_strategy, node_transport)
+            # if we have inventoried this node already, use that!
+            if child.address and child.address in node_inventory_by_address:
+                inventory_node = node_inventory_by_address[child.address]
+                _merge_node(inventory_node, child)
+                child = inventory_node
             children[child_ref] = child
-    logs.logger.debug("Found %d children for %s", len(children), service_name)
+
+    logs.logger.debug("Profiled %d non-excluded children from %d profile results for %s",
+                      len(children), len(profile_results), service_name)
     child_cache[service_name] = children
 
     return node_ref, children
@@ -287,7 +341,7 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
             continue
         profile_strategies.append(pfs)
         tasks.append(asyncio.wait_for(
-            provider.profile(address, connection, **pfs.provider_args),
+            provider.profile(address, pfs, connection),
             timeout=constants.ARGS.timeout
         ))
 
@@ -298,7 +352,7 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
         tasks.append(asyncio.wait_for(hint_provider.take_a_hint(hint), timeout=constants.ARGS.timeout))
         profile_strategies.append(
             replace(
-                profile_strategy.HINT_DISCOVERY_STRATEGY,
+                profile_strategy.HINT_PROFILE_STRATEGY,
                 child_provider={'type': 'matchAll', 'provider': hint.provider},
                 protocol=hint.protocol
             )
@@ -312,6 +366,20 @@ def _skip_protocol_mux(mux: str):
         if skip in mux:
             return True
 
+    return False
+
+
+ignored_cidrs = ['169.254.169.254/32']
+ignored_ip_networks = [ipaddress.ip_network(cidr) for cidr in ignored_cidrs]
+
+
+def _skip_address(address: str):
+    try:
+        ipaddr = ipaddress.ip_address(address)
+        skip = any(ipaddr in cidr for cidr in ignored_ip_networks)
+        return skip
+    except ValueError:
+        pass  # address is not a valid IP address
     return False
 
 
@@ -338,6 +406,7 @@ def _create_node(ps_used: ProfileStrategy, node_transport: NodeTransport) -> (st
     if 0 == node_transport.num_connections:
         node.warnings['DEFUNCT'] = True
 
-    node_ref = '_'.join(x for x in [ps_used.protocol.ref, node_transport.protocol_mux, node_transport.debug_identifier]
+    node_ref = '_'.join(x for x in [ps_used.protocol.ref, node_transport.address,
+                        node_transport.protocol_mux, node_transport.debug_identifier]
                         if x is not None)
     return node_ref, node

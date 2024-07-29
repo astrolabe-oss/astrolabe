@@ -39,7 +39,7 @@ async def test_export_tree_case_seed(tree_stubbed, capsys):
     """Test a single seed node is printed correctly - no errors or edge cases"""
     # arrange
     seed = tree_stubbed[list(tree_stubbed)[0]]
-    seed.children = {}
+    seed.set_profile_timestamp()
 
     # act
     await _helper_export_tree_with_timeout(tree_stubbed)
@@ -120,7 +120,7 @@ async def test_export_tree_case_child_errors(error, tree_stubbed_with_child, cap
     captured = capsys.readouterr()
 
     # assert
-    assert f" └--{child.protocol.ref}--? \x1b[31m{{ERR:{error}}} \x1b[0mUNKNOWN [port:{child.protocol_mux}]" \
+    assert f" └--{child.protocol.ref}--? \x1b[31m{{ERR:{error}}} \x1b[0m{child.address} [port:{child.protocol_mux}]" \
            in captured.out
 
 
@@ -242,6 +242,7 @@ async def test_export_tree_case_node_hint_merged(tree_named, protocol_fixture, n
     child_node_hint.protocol_mux = protocol_mux
     tree = tree_named
     list(tree.values())[0].children = {'discovered': child_node_discovered, 'hinted': child_node_hint}
+    list(tree.values())[0].set_profile_timestamp()
 
     # act
     await _helper_export_tree_with_timeout(tree)
@@ -265,17 +266,18 @@ async def test_export_tree_case_node_nonhint_not_merged(tree_named, protocol_fix
     child_1 = replace(node_fixture_factory(), service_name=child_1_name)
     child_1.protocol = protocol_fixture
     child_1.protocol_mux = protocol_mux_1
-    child_1.children = []
+    child_1.set_profile_timestamp()
     child_2 = replace(node_fixture_factory(), service_name=child_2_name)
     child_2.protocol = protocol_fixture
     child_2.protocol_mux = protocol_mux_1
-    child_2.children = []
+    child_2.set_profile_timestamp()
     child_3 = replace(node_fixture_factory(), service_name=child_3_name)
     child_3.protocol = protocol_fixture
     child_3.protocol_mux = protocol_mux_2
-    child_3.children = []
+    child_3.set_profile_timestamp()
 
     list(tree_named.values())[0].children = {'child1': child_1, 'child2': child_2, 'child3': child_3}
+    list(tree_named.values())[0].set_profile_timestamp()
 
     # act
     await _helper_export_tree_with_timeout(tree_named)

@@ -25,11 +25,12 @@ from botocore.exceptions import ClientError
 from termcolor import colored
 
 from astrolabe import constants, logs
-from astrolabe.node import NodeTransport
+from astrolabe.discover import node_inventory_by_dnsname
+from astrolabe.node import Node, NodeTransport, NodeType
 from astrolabe.network import Hint
 from astrolabe.providers import ProviderInterface
 from astrolabe.plugin_core import PluginArgParser
-from astrolabe.discover import dns_cache
+from astrolabe.profile_strategy import INVENTORY_PROFILE_STRATEGY
 
 TAG_NAME_POS = 0
 TAG_VALUE_POS = 1
@@ -41,11 +42,13 @@ class ProviderAWS(ProviderInterface):
             boto3.setup_default_session(profile_name=constants.ARGS.aws_profile)
         self.ec2_client = boto3.client('ec2')
         self.rds_client = boto3.client('rds')
+        self.elb_client = boto3.client('elbv2')
         self.elasticache_client = boto3.client('elasticache')
         self.tag_filters = {tag_filter.split('=')[TAG_NAME_POS]: tag_filter.split('=')[TAG_VALUE_POS]
                             for tag_filter in constants.ARGS.aws_tag_filters}
         self._inventory_rds()
         self._inventory_elasticache()
+        self._inventory_load_balancers()
 
     @staticmethod
     def ref() -> str:
@@ -126,7 +129,12 @@ class ProviderAWS(ProviderInterface):
                 name = instance['DBInstanceIdentifier']
 
                 # Add instance information to the global dictionary
-                dns_cache[address] = name
+                node_inventory_by_dnsname[address] = Node(
+                    node_type=NodeType.RESOURCE,
+                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                    provider='aws',
+                    service_name=name
+                )
 
     def _inventory_elasticache(self):
         paginator = self.elasticache_client.get_paginator('describe_cache_clusters')
@@ -135,7 +143,27 @@ class ProviderAWS(ProviderInterface):
                 cluster_name = cluster['CacheClusterId']
                 for node in cluster['CacheNodes']:
                     address = node['Endpoint']['Address']
-                    dns_cache[address] = cluster_name
+                    node_inventory_by_dnsname[address] = Node(
+                        node_type=NodeType.RESOURCE,
+                        profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                        provider='aws',
+                        service_name=cluster_name
+                    )
+
+    def _inventory_load_balancers(self):
+        paginator = self.elb_client.get_paginator('describe_load_balancers')
+        for page in paginator.paginate():
+            for lb in page['LoadBalancers']:  # pylint:disable=invalid-name
+                address = lb['DNSName']
+                name = lb['LoadBalancerName']
+
+                # Add load balancer information to the global dictionary
+                node_inventory_by_dnsname[address] = Node(
+                    node_type=NodeType.TRAFFIC_CONTROLLER,
+                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                    provider='aws',
+                    service_name=name
+                )
 
 
 def _die(err):
