@@ -173,19 +173,18 @@ async def test_discover_case_open_connection_handles_exceptions(tree, provider_m
 
 # Calls to ProviderInterface::lookup_name
 @pytest.mark.asyncio
-async def test_discover_case_lookup_name_uses_cache(tree, node_fixture_factory, provider_mock):
+async def test_discover_case_lookup_name_uses_cache(tree, provider_mock):
     """Validate the calls to lookup_name for the same address are cached"""
     # arrange
-    address = 'use_this_address_twice'
-    node2 = node_fixture_factory()
-    node2.address = address
-    tree['dummy2'] = node2
-    list(tree.values())[0].address = address
+    node = list(tree.values())[0]
+    tree['same_node_again'] = node
 
     # act
     await discover.discover(tree, [])
 
     # assert
+    assert node.address in discover.node_inventory_by_address
+    assert discover.node_inventory_by_address[node.address] == node
     provider_mock.lookup_name.assert_called_once()
 
 

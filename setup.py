@@ -34,7 +34,8 @@ setup(
         'pyyaml~=6.0',
         'graphviz>=0.13',
         'termcolor~=2.0',
-        'neo4j~=5.19.0' # neomodel 5.3.1 depends on neo4j~=5.19.0
+        'neo4j~=5.19.0',  # neomodel 5.3.1 depends on neo4j~=5.19.0
+        'cryptography<43.0.0'  # cryptography warnings: https://github.com/paramiko/paramiko/issues/2419
     ],
     extras_require={
         'test': [

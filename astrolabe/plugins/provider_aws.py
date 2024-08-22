@@ -43,6 +43,7 @@ class ProviderAWS(ProviderInterface):
         self.ec2_client = boto3.client('ec2')
         self.rds_client = boto3.client('rds')
         self.elb_client = boto3.client('elbv2')
+        self.asg_client = boto3.client('autoscaling')
         self.elasticache_client = boto3.client('elasticache')
         self.tag_filters = {tag_filter.split('=')[TAG_NAME_POS]: tag_filter.split('=')[TAG_VALUE_POS]
                             for tag_filter in constants.ARGS.aws_tag_filters}
@@ -150,6 +151,7 @@ class ProviderAWS(ProviderInterface):
                         service_name=cluster_name
                     )
 
+    # pylint:disable=too-many-locals,too-many-nested-blocks
     def _inventory_load_balancers(self):
         paginator = self.elb_client.get_paginator('describe_load_balancers')
         for page in paginator.paginate():
@@ -157,13 +159,60 @@ class ProviderAWS(ProviderInterface):
                 address = lb['DNSName']
                 name = lb['LoadBalancerName']
 
-                # Add load balancer information to the global dictionary
-                node_inventory_by_dnsname[address] = Node(
+                # find the ASG(s) the load balancer sends requests to.  There is no
+                #  direct link in AWS between load balancer and ASG, so we have to find
+                #  ALB instances and then derive the ASG(s) from the instances!
+                asg_nodes = {}
+                target_groups = self.elb_client.describe_target_groups(LoadBalancerArn=lb['LoadBalancerArn'])
+                for tgg in target_groups['TargetGroups']:
+                    # ALB Target Group
+                    tg_name = tgg['TargetGroupName']
+                    tg_port = tgg['Port']
+                    logs.logger.debug("  Target Group: %s", tg_name)
+                    target_health = self.elb_client.describe_target_health(TargetGroupArn=tgg['TargetGroupArn'])
+                    for target in target_health['TargetHealthDescriptions']:
+                        # ALB EC2 Instances
+                        instance_id = target['Target']['Id']
+                        auto_scaling_instances = self.asg_client.describe_auto_scaling_instances(
+                            InstanceIds=[instance_id]
+                        )
+                        asg_node = None
+                        for asg_instance in auto_scaling_instances['AutoScalingInstances']:
+                            # Create the ASG Node
+                            if not asg_node:  # we only need this once
+                                asg_name = asg_instance['AutoScalingGroupName']
+                                asg_address = asg_name
+                                asg_node = Node(
+                                    address=asg_address,
+                                    node_type=NodeType.DEPLOYMENT,
+                                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                                    protocol=INVENTORY_PROFILE_STRATEGY.protocol,
+                                    protocol_mux=tg_port,
+                                    provider='aws',
+                                    service_name=asg_name
+                                )
+                                asg_nodes[f"ASG_{asg_name}"] = asg_node
+                            instance_info = self.ec2_client.describe_instances(InstanceIds=[instance_id])
+                            public_ip = instance_info['Reservations'][0]['Instances'][0].get('PublicIpAddress')
+                            # Create the EC2 Instance Node
+                            asg_node.children[f"ssh:{public_ip}"] = Node(
+                                address=public_ip,
+                                node_type=NodeType.COMPUTE,
+                                profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                                protocol=INVENTORY_PROFILE_STRATEGY.protocol,
+                                protocol_mux=tg_port,
+                                provider='ssh'
+                            )
+
+                # Create the ALB Node
+                lb_node = Node(
                     node_type=NodeType.TRAFFIC_CONTROLLER,
                     profile_strategy=INVENTORY_PROFILE_STRATEGY,
                     provider='aws',
-                    service_name=name
+                    service_name=name,
+                    children=asg_nodes
                 )
+                node_inventory_by_dnsname[address] = lb_node
 
 
 def _die(err):

@@ -248,6 +248,8 @@ async def _sidecar_lookup_hostnames(address: str, connection: SSHClientConnectio
         ip_addrs = result.stdout.strip() if result else None
         for addr_bytes in ip_addrs.split('\n'):
             address = str(addr_bytes)
-            if address and address not in node_inventory_by_address:
+            cached_node = node_inventory_by_address[address] if address in node_inventory_by_address else None
+            if address and cached_node and not cached_node.address:
                 logs.logger.debug(f"Discovered IP %s for {hostname}: from address %s", addr_bytes, address)
-                node_inventory_by_address[address].service_name = node.service_name
+                node.address = address
+                node_inventory_by_address[address] = node

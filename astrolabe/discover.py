@@ -250,22 +250,26 @@ async def _run_sidecars(tree: Dict[str, Node], conns: list) -> None:
 
 async def _lookup_service_name(node: Node, provider: providers.ProviderInterface,
                                connection: type) -> Optional[str]:
+    if not node.address:
+        logs.logger.warning("Node name lookup required with no address!")
+        return None
+
+    if node.service_name:
+        logs.logger.debug("Using pre-profiled/cached service name %s for address: %s)", node.service_name, node.address)
+        return node.service_name
     address = node.address
-    if address in node_inventory_by_address and node_inventory_by_address[address].service_name:
-        logs.logger.debug("Using cached service name (%s for: %s)",
-                          node_inventory_by_address[address].service_name, address)
-        return node_inventory_by_address[address].service_name
 
-    logs.logger.debug("Getting service name for address %s", address)
+    logs.logger.debug(f"Getting service name for address %s from provider {provider.ref()}", address)
     service_name = await provider.lookup_name(address, connection)
-    if service_name:
-        logs.logger.debug("Discovered name: %s for address %s", service_name, address)
-        node.service_name = service_name
-        node_inventory_by_address[address] = node
-        return service_name
+    if not service_name:
+        logs.logger.debug("Name discovery failed for address %s", address)
+        return None
 
-    logs.logger.debug("Name discovery failed for address %s", address)
-    return None
+    logs.logger.debug("Discovered name: %s for address %s", service_name, address)
+    node.service_name = service_name
+    node_inventory_by_address[address] = node
+
+    return service_name
 
 
 async def _run_sidecar(address: str, provider: providers.ProviderInterface,
@@ -286,7 +290,7 @@ async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, se
         return node_ref, {r: replace(n, children={}, warnings=n.warnings.copy(), errors=n.errors.copy())
                           for r, n in child_cache[service_name].items()}
 
-    logs.logger.debug("Profiling for %s", node_ref)
+    logs.logger.debug(f"Profiling provider: '{provider_ref}' for %s", node_ref)
     tasks, profile_strategies = _compile_profile_tasks_and_strategies(address, service_name,
                                                                       providers.get_provider_by_ref(provider_ref),
                                                                       connection)
