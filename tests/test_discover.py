@@ -273,7 +273,7 @@ async def test_discover_case_profile_uses_cache(tree, node_fixture_factory, prov
 
 @pytest.mark.asyncio
 async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_args_mock):
-    """Timeout is respected during profile and results in a sys.exit"""
+    """Timeout is respected during profile and results in a TIMEOUT error"""
     # arrange
     cli_args_mock.timeout = .1
 
@@ -284,10 +284,9 @@ async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_ar
     ps_mock.providers = [provider_mock.ref()]
 
     # act/assert
-    with pytest.raises(SystemExit) as _:
-        await discover.discover(tree, [])
+    await discover.discover(tree, [])
 
-    assert True
+    assert 'TIMEOUT' in list(tree.values())[0].errors.keys()
 
 
 @pytest.mark.asyncio

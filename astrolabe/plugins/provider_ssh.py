@@ -101,8 +101,9 @@ async def _get_connection(host: str, retry_num=0) -> asyncssh.SSHClientConnectio
     try:
         if bastion:
             logs.logger.debug("Using bastion: %s", str(bastion))
-            return await bastion.connect_ssh(host, **SSH_CONNECT_ARGS)
-        return await asyncssh.connect(host, **SSH_CONNECT_ARGS)
+            conn = await bastion.connect_ssh(host, **SSH_CONNECT_ARGS)
+        conn = await asyncssh.connect(host, **SSH_CONNECT_ARGS)
+        return conn
     except ChannelOpenError as exc:
         raise TimeoutException(f"asyncssh.ChannelOpenError encountered opening SSH connection for {host}") from exc
     except Exception as exc:
@@ -248,8 +249,7 @@ async def _sidecar_lookup_hostnames(address: str, connection: SSHClientConnectio
         ip_addrs = result.stdout.strip() if result else None
         for addr_bytes in ip_addrs.split('\n'):
             address = str(addr_bytes)
-            cached_node = node_inventory_by_address[address] if address in node_inventory_by_address else None
-            if address and cached_node and not cached_node.address:
+            if address and address not in node_inventory_by_address:
                 logs.logger.debug(f"Discovered IP %s for {hostname}: from address %s", addr_bytes, address)
                 node.address = address
                 node_inventory_by_address[address] = node
