@@ -247,28 +247,36 @@ async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock
     provider_mock.profile.assert_not_called()
 
 
+@pytest.mark.parametrize('name1,name2,provider1,provider2,uses_cache', [
+    ('service_A', 'service_A', 'prov_A', 'prov_A', True),
+    ('service_A', 'service_B', 'prov_A', 'prov_A', False),
+    ('service_A', 'service_A', 'prov_A', 'prov_B', False)
+])
 @pytest.mark.asyncio
-async def test_discover_case_profile_uses_cache(tree, node_fixture_factory, provider_mock, ps_mock):
-    """Validate the calls to profile for the same address are cached.  Caching is only guaranteed for
-    different branches in the tree since siblings execute concurrently - and so we have to test a tree with more
+async def test_discover_case_profile_caching(tree, node_fixture_factory, provider_mock, ps_mock,
+                                             name1, name2, provider1, provider2, uses_cache):
+    """Validate the calls to profile for the same service_name and provider are cached.  Caching is only guaranteed for
+    different depths in the tree since siblings execute concurrently - and so we have to test a tree with more
     depth > 1"""
     # arrange
-    repeated_service_name = 'double_name'
-    singleton_service_name = 'single_name'
+    node1 = list(tree.values())[0]
+    node1.provider = provider1
     node2 = node_fixture_factory()
     node2.address = 'foo'  # must be different than list(tree.values())[0].address to avoid caching
     node2_child = node.NodeTransport('foo_mux', 'bar_address')
     tree['dummy2'] = node2
-    provider_mock.lookup_name.side_effect = [repeated_service_name, singleton_service_name, repeated_service_name]
+    provider_mock.lookup_name.side_effect = [name1, 'node_2_service_name', name2]
     provider_mock.profile.side_effect = [[], [node2_child], []]
     ps_mock.providers = [provider_mock.ref()]
+    ps_mock.determine_child_provider.return_value = provider2
 
     # act
     await discover.discover(tree, [])
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert 2 == provider_mock.profile.call_count
+    expected_call_count = 2 if uses_cache else 3
+    assert provider_mock.profile.call_count == expected_call_count
 
 
 @pytest.mark.asyncio

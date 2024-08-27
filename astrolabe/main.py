@@ -101,12 +101,16 @@ class Command:
         self._initialize_plugins()
         tree = self._generate_tree()
         _export(tree)
+        self._cleanup()
 
     def _initialize_plugins(self):
         raise NotImplementedError('Plugin initialization not implemented')
 
     def _generate_tree(self) -> Dict[str, node.Node]:
         raise NotImplementedError('Tree generation not implemented')
+
+    def _cleanup(self):
+        return
 
 
 class ExportCommand(Command):
@@ -135,6 +139,9 @@ class DiscoverCommand(Command):
         tree = asyncio.get_event_loop().run_until_complete(_discover_network())
         export_json.dump(tree, constants.LASTRUN_FILE)
         return tree
+
+    def _cleanup(self):
+        providers.cleanup_providers()
 
 
 def _cli_command() -> Command:

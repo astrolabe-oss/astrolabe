@@ -29,7 +29,7 @@ setup(
         'configargparse~=1.2',
         'coolname~=2.0',
         'faker>=4.1',
-        'kubernetes~=11.0',
+        'kubernetes_asyncio~=30.3',
         'paramiko~=3.4',
         'pyyaml~=6.0',
         'graphviz>=0.13',

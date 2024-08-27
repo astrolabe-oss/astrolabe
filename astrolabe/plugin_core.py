@@ -11,6 +11,7 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
+import asyncio
 from typing import Dict, List, Optional
 import importlib
 import pkgutil
@@ -61,6 +62,14 @@ class PluginClobberException(Exception):
 
 
 class PluginInterface:
+    async def init_async(self):
+        """Give plugins a chance to run async initialization code"""
+        return
+
+    async def del_async(self):
+        """Give plugins a chnace to destruct async code"""
+        return
+
     @staticmethod
     def ref() -> str:
         """
@@ -97,7 +106,14 @@ class PluginFamilyRegistry:
         for plugin in [c for c in self._cls.__subclasses__() if c.ref() not in (disabled_classes or [])]:
             if plugin.ref() in self._plugin_registry:
                 raise PluginClobberException(f"Provider {plugin.ref()} already registered!")
-            self._plugin_registry[plugin.ref()] = plugin()
+            p_obj = plugin()
+            asyncio.get_event_loop().run_until_complete(p_obj.init_async())
+            self._plugin_registry[plugin.ref()] = p_obj
+
+    def cleanup_plugins(self):
+        loop = asyncio.get_event_loop()
+        for provider in self._plugin_registry.values():
+            loop.run_until_complete(provider.del_async())
 
     def get_plugin(self, ref: str) -> PluginInterface:
         try:

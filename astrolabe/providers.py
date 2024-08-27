@@ -126,6 +126,10 @@ def register_providers():
     _provider_registry.register_plugins(constants.ARGS.disable_providers)
 
 
+def cleanup_providers():
+    _provider_registry.cleanup_plugins()
+
+
 def get_provider_by_ref(provider_ref: str) -> ProviderInterface:
     return _provider_registry.get_plugin(provider_ref)
 

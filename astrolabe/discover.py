@@ -17,92 +17,114 @@ import ipaddress
 import sys
 import traceback
 from dataclasses import replace, is_dataclass, fields
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from termcolor import colored
 
 from astrolabe import profile_strategy, network, constants, logs, obfuscate, providers
 from astrolabe.profile_strategy import ProfileStrategy
+from astrolabe.providers import ProviderInterface
 from astrolabe.node import Node, NodeTransport
 
 node_inventory_by_address: Dict[str, Node] = {}  # {address: Node()}
 node_inventory_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
 node_inventory_null_name_by_address: List[str] = []  # [address]
-child_cache: Dict[str, Dict[str, Node]] = {}  # {service_name: {node_ref, Node}}
+child_cache: Dict[str, Dict[str, Node]] = {}  # {'provider_ref:service_name': {node_ref, Node}}
+
+
+class DiscoveryException(Exception):
+    def __init__(self, message=None):
+        super().__init__(message)
+        self.node = None
 
 
 async def discover(tree: Dict[str, Node], ancestors: List[str]):
     depth = len(ancestors)
     logs.logger.debug("Found %s nodes to profile at depth: %d", str(len(tree)), depth)
 
+    asyncio_tasks = []
+
     for node_ref, node in tree.items():
-        await _discover_one(node_ref, node, ancestors)
+        asyncio_tasks.append(_discover_node(node_ref, node, ancestors))
+
+    results = await asyncio.gather(*asyncio_tasks, return_exceptions=True)
+
+    for result in results:
+        if isinstance(result, DiscoveryException):
+            exc = result.__cause__
+            node = result.node
+            child_of = f"child of {ancestors[len(ancestors) - 1]}" if len(ancestors) > 0 else 'SEED'
+            logs.logger.error("Exception %s occurred connecting to %s:%s child of `%s`",
+                              exc, node.provider, node.address, child_of)
+            traceback.print_tb(exc.__traceback__)
+            sys.exit(1)
 
 
-async def _discover_one(node_ref: str, node: Node, ancestors: List[str]): 
-    if network.skip_protocol_mux(node.protocol_mux):
-        node.errors['CONNECT_SKIPPED'] = True
+async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
+    if node.get_profile_timestamp() is not None:
+        logs.logger.info("Profile already completed for node: %s:%s (%s)",
+                         node.provider, node.address, node.service_name)
         return
     depth = len(ancestors)
     provider = providers.get_provider_by_ref(node.provider)
     try:
-        # OPEN CONNECTION -> Optional[Type]
-        conn = await asyncio.wait_for(_open_connection(node.address, provider), constants.ARGS.timeout)
-
-        # RUN SIDECAR
-        await asyncio.wait_for(_run_sidecar(node.address, provider, conn), constants.ARGS.timeout)
-
-        # SERVICE NAME
-        await asyncio.wait_for(_lookup_service_name(node, provider, conn), constants.ARGS.timeout)
-
-        # DETECT CYCLES
-        if node.service_name and node.service_name in ancestors:
-            node.errors['CYCLE'] = True
-            return
-
-        # MAX DEPTH
-        if len(ancestors) > constants.ARGS.max_depth - 1:
-            logs.logger.debug("Reached --max-depth of %d at depth: %d", constants.ARGS.max_depth, depth)
-            return
-
-        # PROFILEABLE?
-        if not node.is_profileable(depth):
-            node.errors['PROFILE_SKIPPED'] = True
-            return
-
-        # PROFILE
-        children = await _profile_with_hints(node.provider, node_ref, node.address, node.service_name, conn)
-        await _recursively_profile_node(node, children, depth, ancestors)
+        await _discovery_algo(node_ref, node, ancestors, provider, depth)
+        node.set_profile_timestamp()
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
         logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy.name}, 'yellow')
         node.errors['TIMEOUT'] = True
         return
-    except Exception as exc:  # pylint:disable=broad-exception-caught
-        child_of = f"child of {ancestors[len(ancestors)-1]}" if len(ancestors) > 0 else ''
-        print(colored(f"Exception {exc.__class__.__name__} occurred connecting to {node_ref}, "
-                      f"{node.address} {child_of}", 'red'))
-        print(exc, file=sys.stderr)
-        traceback.print_tb(exc.__traceback__)
-        sys.exit(1)
+    except Exception as exc:
+        dexc = DiscoveryException(exc)
+        dexc.node = node
+        raise dexc from exc
 
 
-async def _open_connection(address: str, provider: providers.ProviderInterface) -> Optional[type]:
-    if address in node_inventory_null_name_by_address:
-        logs.logger.debug("Not opening connection: name is None (%s)", address)
-        return None
+async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provider: ProviderInterface, depth: int):
+    if network.skip_protocol_mux(node.protocol_mux):
+        node.errors['CONNECT_SKIPPED'] = True
+        return
 
-    if address in node_inventory_by_address:
-        node = node_inventory_by_address[address]
-        if network.skip_service_name(node.address):
-            logs.logger.debug("Not opening connection: skip (%s)", node.address)
-            return None
-        if node.address in child_cache:
-            logs.logger.debug("Not opening connections: profile results cached (%s)", node.address)
-            return None
+    # SKIP?
+    if node.service_name and network.skip_service_name(node.service_name):
+        logs.logger.debug("Not opening connection: skip (%s)", node.address)
+        return
 
-    logs.logger.debug("Opening connection: %s", address)
-    return await provider.open_connection(address)
+    # OPEN CONNECTION -> Optional[Type]
+    logs.logger.debug("Opening connection: %s", node.address)
+    conn = await asyncio.wait_for(provider.open_connection(node.address), constants.ARGS.timeout)
+
+    # RUN SIDECAR
+    logs.logger.debug("Running sidecar for address %s", node.address)
+    await asyncio.wait_for(provider.sidecar(node.address, conn), constants.ARGS.timeout)
+
+    # SERVICE NAME
+    await asyncio.wait_for(_lookup_service_name(node, provider, conn), constants.ARGS.timeout)
+
+    # DETECT CYCLES
+    if node.service_name and node.service_name in ancestors:
+        node.errors['CYCLE'] = True
+        return
+
+    # MAX DEPTH
+    if len(ancestors) > constants.ARGS.max_depth - 1:
+        logs.logger.debug("Reached --max-depth of %d at depth: %d", constants.ARGS.max_depth, depth)
+        return
+
+    # PROFILEABLE?
+    if not node.is_profileable(depth):
+        node.errors['PROFILE_SKIPPED'] = True
+        return
+
+    # PROFILE
+    profiled_children = await _profile_with_hints(node, node_ref, conn, depth)
+    node.children = {**node.children, **profiled_children}  # merge with pre-profiled children
+
+    # RECURSE
+    children_with_address = {ref: child for ref, child in node.children.items() if child.address}
+    if children_with_address:
+        asyncio.ensure_future(discover(children_with_address, ancestors + [node.service_name]))
 
 
 async def _lookup_service_name(node: Node, provider: providers.ProviderInterface,
@@ -133,30 +155,27 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
     node_inventory_by_address[address] = node
 
 
-async def _run_sidecar(address: str, provider: providers.ProviderInterface,
-                       connection: Optional[type]) -> bool:
-    logs.logger.debug("Running sidecar for address %s", address)
-    await provider.sidecar(address, connection)
-    logs.logger.debug("Ran sidecar for address %s", address)
-
-    return True
-
-
 # pylint:disable=too-many-locals
-async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, service_name: str,
-                              connection: type) -> Dict[str, Node]:
-    if service_name in child_cache:
-        logs.logger.debug("Found %d children in cache for:%s", len(child_cache[service_name]), service_name)
+async def _profile_with_hints(node: Node, node_ref: str, connection: type, depth: int) -> Dict[str, Node]:
+    provider_ref = node.provider
+    address = node.address
+    service_name = node.service_name
+
+    # CHECK CACHE
+    cache_key = f"{node.provider}:{node.service_name}"
+    if cache_key in child_cache:
+        logs.logger.debug("Found %d children in cache for:%s", len(child_cache[cache_key]), cache_key)
         # we must to this copy to avoid various contention and infinite recursion bugs
         return {r: replace(n, children={}, warnings=n.warnings.copy(), errors=n.errors.copy())
-                for r, n in child_cache[service_name].items()}
+                for r, n in child_cache[cache_key].items()}
 
+    # PROFILE ASYNCIO TASKS
     logs.logger.debug(f"Profiling provider: '{provider_ref}' for %s", node_ref)
     tasks, profile_strategies = _compile_profile_tasks_and_strategies(address, service_name,
                                                                       providers.get_provider_by_ref(provider_ref),
                                                                       connection)
 
-    # if there are any timeouts or exceptions, panic and run away! we don't want an incomplete graph to look complete
+    # HANDLE EXCEPTIONS
     profile_results = await asyncio.gather(*tasks, return_exceptions=True)
     profile_exceptions = [e for e in profile_results if isinstance(e, Exception)]
     if profile_exceptions:
@@ -167,7 +186,7 @@ async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, se
         print(f"{type(profile_exceptions[0])}({profile_exceptions[0]})")
         raise profile_exceptions[0]
 
-    # parse returned NodeTransport objects to Node objects
+    # PARSE PROFILE RESULTS
     children = {}
     for node_transports, prof_strategy in [(nts, cs) for nts, cs in zip(profile_results, profile_strategies) if nts]:
         for node_transport in node_transports:
@@ -189,9 +208,19 @@ async def _profile_with_hints(provider_ref: str, node_ref: str, address: str, se
 
     logs.logger.debug("Profiled %d non-excluded children from %d profile results for %s",
                       len(children), len(profile_results), service_name)
-    child_cache[service_name] = children
 
-    return children
+    # CHILD EXCLUSIONS
+    child_depth = depth + 1
+    nonexcluded_children = {ref: child for ref, child in children.items() if not child.is_excluded(child_depth)}
+
+    # SET CACHE
+    child_cache[cache_key] = nonexcluded_children
+
+    # MERGE CHILDREN W/ INVENTORY
+    logs.logger.debug("Merging %d existing children for %s", len(node.children), node.address)
+    _merge_children_with_inventory_nodes(nonexcluded_children)
+
+    return nonexcluded_children
 
 
 def _compile_profile_tasks_and_strategies(address: str, service_name: str, provider: providers.ProviderInterface,
@@ -199,10 +228,13 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
     tasks = []
     profile_strategies: List[ProfileStrategy] = []
 
-    # profile_strategies
+    # PROFILE STRATEGIES
     for pfs in profile_strategy.profile_strategies:
-        if pfs.protocol.ref in constants.ARGS.skip_protocols or pfs.filter_service_name(service_name) \
-                or provider.ref() not in pfs.providers:
+        if provider.ref() not in pfs.providers:
+            continue
+        if pfs.protocol.ref in constants.ARGS.skip_protocols:
+            continue
+        if pfs.filter_service_name(service_name):
             continue
         profile_strategies.append(pfs)
         tasks.append(asyncio.wait_for(
@@ -210,7 +242,7 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
             timeout=constants.ARGS.timeout
         ))
 
-    # take hints
+    # HINTS
     for hint in [hint for hint in network.hints(service_name)
                  if hint.instance_provider not in constants.ARGS.disable_providers]:
         hint_provider = providers.get_provider_by_ref(hint.instance_provider)
@@ -224,18 +256,6 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
         )
 
     return tasks, profile_strategies
-
-
-async def _recursively_profile_node(node: Node, children: Dict[str, Node], depth: int, ancestors: List[str]):
-    child_depth = depth + 1
-    nonexcluded_children = {ref: child for ref, child in children.items() if not child.is_excluded(child_depth)}
-    _merge_children_with_inventory_nodes(nonexcluded_children)
-    logs.logger.debug("Merging %d existing children for %s", len(node.children), node.address)
-    node.children = {**node.children, **nonexcluded_children}  # merge with pre-profiled children
-    children_with_address = {ref: child for ref, child in node.children.items() if child.address}
-    if children_with_address:
-        asyncio.ensure_future(discover(children_with_address, ancestors + [node.service_name]))
-    node.set_profile_timestamp()  # will indicate that Node.profile_complete() is complete
 
 
 ###########

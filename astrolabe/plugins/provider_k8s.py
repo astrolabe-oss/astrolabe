@@ -15,13 +15,13 @@ Copyright 2024 Magellanbot, Inc
 License:
 SPDX-License-Identifier: Apache-2.0
 """
-
+import asyncio
 import sys
 from typing import Dict, List, Optional
 
-from kubernetes import client, config
-from kubernetes.stream import stream
-from kubernetes.client.rest import ApiException
+from kubernetes_asyncio import client, config
+from kubernetes_asyncio.stream import WsApiClient
+from kubernetes_asyncio.client.rest import ApiException
 from termcolor import colored
 
 from astrolabe import constants, logs
@@ -37,9 +37,18 @@ pod_cache: Dict[str, client.models.V1Pod] = {}
 
 class ProviderKubernetes(ProviderInterface):
     def __init__(self):
-        config.load_kube_config()
+        self.api: client.CoreV1Api
+        self.ws_api: client.CoreV1Api
+
+    async def init_async(self):
+        await config.load_kube_config()
         self.api = client.CoreV1Api()
-        self._inventory_services()
+        self.ws_api = client.CoreV1Api(WsApiClient(configuration=client.configuration.Configuration.get_default()))
+        await self._inventory_services()
+
+    async def del_async(self):
+        await self.api.api_client.rest_client.close()
+        await self.ws_api.api_client.rest_client.close()
 
     @staticmethod
     def ref() -> str:
@@ -61,7 +70,7 @@ class ProviderKubernetes(ProviderInterface):
 
     async def lookup_name(self, address: str, _: Optional[type]) -> Optional[str]:
         # k8s pod service name
-        pod = self._get_pod(address)
+        pod = await self._get_pod(address)
         if not pod:
             return
 
@@ -79,30 +88,35 @@ class ProviderKubernetes(ProviderInterface):
         """we are cheating! for every instance we ssh into, we are going to try a name lookup
            to get the DNS names for anything in the astrolabe DNS Cache that we don't yet have
            """
+        asyncio_tasks = []
         for hostname, node in node_inventory_by_dnsname.items():
-            sidecar_command = f"getent hosts {hostname} | awk '{{print $1}}'"
-            logs.logger.debug(f"Running sidecar command: {sidecar_command} for address %s", address)
-            exec_command = ['sh', '-c', sidecar_command]
-            pod = self._get_pod(address)
-            if not pod:
-                return
+            asyncio_tasks.append(self._sidecar_lookup_hostname(address, hostname, node))
+        await asyncio.gather(*asyncio_tasks)
 
-            containers = pod.spec.containers
-            containers = [c for c in containers if True not in
-                          [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
-            for container in containers:
-                ret = stream(self.api.connect_get_namespaced_pod_exec, address, constants.ARGS.k8s_namespace,
-                             container=container.name, command=exec_command,
-                             stderr=True, stdin=False, stdout=True, tty=False)
-                ip_addrs = ret.strip().split('\n') if ret else None
-                for ip_addr in ip_addrs:
-                    if ip_addr and ip_addr not in node_inventory_by_address:
-                        logs.logger.debug("Discovered IP %s for hostname %s: from address %s",
-                                          ip_addr, hostname, address)
-                        # TODO: we are glossing over the fact that there can multiple addresses per
-                        #  node for DNS records here!  Solve that problem later!
-                        node.address = ip_addr
-                        node_inventory_by_address[ip_addr] = node
+    async def _sidecar_lookup_hostname(self, address: str, hostname: str, node: Node):
+        sidecar_command = f"getent hosts {hostname} | awk '{{print $1}}'"
+        logs.logger.debug(f"Running sidecar command: {sidecar_command} for address %s", address)
+        exec_command = ['sh', '-c', sidecar_command]
+        pod = await self._get_pod(address)
+        if not pod:
+            return
+
+        containers = pod.spec.containers
+        containers = [c for c in containers if True not in
+                      [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
+        for container in containers:
+            ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
+                                                                    container=container.name, command=exec_command,
+                                                                    stderr=True, stdin=False, stdout=True, tty=False)
+            ip_addrs = ret.strip().split('\n') if ret else None
+            for ip_addr in ip_addrs:
+                if ip_addr and ip_addr not in node_inventory_by_address:
+                    logs.logger.debug("Discovered IP %s for hostname %s: from address %s",
+                                      ip_addr, hostname, address)
+                    # TODO: we are glossing over the fact that there can multiple addresses per
+                    #  node for DNS records here!  Solve that problem later!
+                    node.address = ip_addr
+                    node_inventory_by_address[ip_addr] = node
 
     async def profile(self, address: str, pfs: ProfileStrategy, _: Optional[type]) -> List[NodeTransport]:
         # profile k8s service load balancer
@@ -128,13 +142,13 @@ class ProviderKubernetes(ProviderInterface):
 
     async def _profile_k8s_service(self, address: str) -> List[NodeTransport]:
         try:
-            service = self.api.read_namespaced_service(address, namespace="default")
+            service = await self.api.read_namespaced_service(address, namespace="default")
             selector = service.spec.selector
             if not selector:
                 return []
 
             label_selector = ",".join([f"{key}={value}" for key, value in selector.items()])
-            pods = self.api.list_namespaced_pod(namespace="default", label_selector=label_selector)
+            pods = await self.api.list_namespaced_pod(namespace="default", label_selector=label_selector)
 
             node_transports = []
             for pod in pods.items:
@@ -150,7 +164,7 @@ class ProviderKubernetes(ProviderInterface):
     async def _profile_pod(self, address: str, pfs: ProfileStrategy) -> List[NodeTransport]:
         shell_command = pfs.provider_args['shell_command']
         exec_command = ['bash', '-c', shell_command]
-        pod = self._get_pod(address)
+        pod = await self._get_pod(address)
         if not pod:
             return []
 
@@ -160,15 +174,15 @@ class ProviderKubernetes(ProviderInterface):
 
         node_transports = []
         for container in containers:
-            ret = stream(self.api.connect_get_namespaced_pod_exec, address, constants.ARGS.k8s_namespace,
-                         container=container.name, command=exec_command,
-                         stderr=True, stdin=False, stdout=True, tty=False)
+            ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
+                                                                    container=container.name, command=exec_command,
+                                                                    stderr=True, stdin=False, stdout=True, tty=False)
             node_transports.extend(parse_profile_strategy_response(ret, address, pfs.name))
         return node_transports
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
-        ret = self.api.list_namespaced_pod(constants.ARGS.k8s_namespace, limit=1,
-                                           label_selector=_parse_label_selector(hint.service_name))
+        ret = await self.api.list_namespaced_pod(constants.ARGS.k8s_namespace, limit=1,
+                                                 label_selector=_parse_label_selector(hint.service_name))
         try:
             address = ret.items[0].metadata.name
         except IndexError:
@@ -179,7 +193,7 @@ class ProviderKubernetes(ProviderInterface):
 
         return [NodeTransport(hint.protocol_mux, address, hint.service_name)]
 
-    def _get_pod(self, pod_name: str) -> Optional[client.models.V1Pod]:
+    async def _get_pod(self, pod_name: str) -> Optional[client.models.V1Pod]:
         """
         Get the pod from kubernetes API, with caching
 
@@ -190,7 +204,7 @@ class ProviderKubernetes(ProviderInterface):
             return pod_cache[pod_name]
 
         try:
-            pod = self.api.read_namespaced_pod(pod_name, constants.ARGS.k8s_namespace)
+            pod = await self.api.read_namespaced_pod(pod_name, constants.ARGS.k8s_namespace)
             pod_cache[pod_name] = pod
         except ApiException as exc:
             logs.logger.debug("Cannot find pod %s w/ ApiException(%s:%s)", pod_name, exc.status, exc.reason)
@@ -198,11 +212,11 @@ class ProviderKubernetes(ProviderInterface):
 
         return pod
 
-    def _inventory_services(self):
+    async def _inventory_services(self):
         """
         Inventory all services in the cluster and cache their DNS names and service names.
         """
-        services = self.api.list_service_for_all_namespaces(watch=False)
+        services = await self.api.list_service_for_all_namespaces(watch=False)
         for svc in services.items:
             if svc.spec.type == "LoadBalancer" and svc.status.load_balancer.ingress:
                 ports = svc.spec.ports[0]
