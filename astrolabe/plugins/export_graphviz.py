@@ -100,9 +100,6 @@ def _determine_rankdir() -> str:
 
 
 def _determine_auto_rankdir() -> str:
-    if constants.ARGS.skip_nonblocking_grandchildren:
-        return GRAPHVIZ_RANKDIR_LEFT_TO_RIGHT
-
     return GRAPHVIZ_RANKDIR_TOP_TO_BOTTOM
 
 

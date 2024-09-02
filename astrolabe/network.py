@@ -12,6 +12,7 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 
+import ipaddress
 import os
 import sys
 from dataclasses import dataclass
@@ -47,6 +48,9 @@ class WebYamlException(Exception):
 _NETWORK_FILE = 'network.yaml'
 _hints:  Dict[str, List[Hint]] = {}
 _protocols: Dict[str, Protocol] = {}
+_ignored_cidrs = ['169.254.169.254/32']
+_ignored_ip_networks = [ipaddress.ip_network(cidr) for cidr in _ignored_cidrs]
+_skip_addresses: List[str] = []
 _skip_service_names: List[str] = []
 _skip_protocol_muxes: List[str] = []
 
@@ -101,9 +105,26 @@ def _parse_protocols(configs: Dict[str, dict]) -> None:
 
 
 def _parse_skips(configs: Dict[str, dict]) -> None:
-    global _skip_service_names, _skip_protocol_muxes
+    global _skip_service_names, _skip_protocol_muxes, _skip_addresses
+    _skip_addresses = configs.get('skips').get('addresses') if configs.get('skips') else []
     _skip_service_names = configs.get('skips').get('service_names') if configs.get('skips') else []
     _skip_protocol_muxes = configs.get('skips').get('protocol_muxes') if configs.get('skips') else []
+
+
+def skip_address(address: str) -> bool:
+    # Check against astrolabe.d/network.yaml
+    if True in [match in address for match in _skip_addresses]:
+        return True
+
+    # Check against default ignored CIDRs
+    try:
+        ipaddr = ipaddress.ip_address(address)
+        skip = any(ipaddr in cidr for cidr in _ignored_ip_networks)
+        return skip
+    except ValueError:
+        pass  # not an IP address
+
+    return False
 
 
 def skip_service_name(service_name: str) -> bool:
@@ -111,7 +132,14 @@ def skip_service_name(service_name: str) -> bool:
 
 
 def skip_protocol_mux(protocol_mux: str) -> bool:
-    return True in [match in protocol_mux for match in _skip_protocol_muxes]
+    # Check again CLI args
+    for skip in constants.ARGS.skip_protocol_muxes:
+        if skip in protocol_mux:
+            return True
+
+    # Check against astrolabe.d/network.yaml
+    matched = [match in protocol_mux for match in _skip_protocol_muxes] or []
+    return True in matched
 
 
 def hints(service_name: str) -> List[Hint]:

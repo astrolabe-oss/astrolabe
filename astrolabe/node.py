@@ -15,7 +15,7 @@ from typing import Dict, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from astrolabe import profile_strategy, constants, network
+from astrolabe import profile_strategy, network
 
 
 database_muxes = ['3306', '9160', '5432', '6379', '11211']
@@ -70,45 +70,8 @@ class Node:  # pylint:disable=too-many-instance-attributes
     def is_database(self):
         return self.protocol_mux in database_muxes or self.protocol.is_database
 
-    def is_profileable(self, depth):
-        if bool(self.errors):
-            return False
-
-        if network.skip_protocol_mux(self.protocol_mux):
-            return False
-
-        if self.service_name and network.skip_service_name(self.service_name):
-            return False
-
-        is_child_or_grandchild = depth > 0
-        if constants.ARGS.skip_nonblocking_grandchildren and not self.protocol.blocking and is_child_or_grandchild:
-            return False
-
-        return True
-
-    def is_excluded(self, depth):
-        """Is excluded entirely from discovery results.  i.e. if we find it, pretend we didn't find it!"""
-        if self.provider in constants.ARGS.disable_providers:
-            return True
-
-        is_grandchild = depth > 1
-        if constants.ARGS.skip_nonblocking_grandchildren and not self.protocol.blocking and is_grandchild:
-            return True
-
-        return False
-
-    def profile_complete(self, depth: int) -> bool:
-        if not self.is_profileable(depth):
-            return True
-
-        if not self.name_lookup_complete():
-            return False
-
-        if depth == constants.ARGS.max_depth:
-            return True
-
+    def profile_complete(self) -> bool:
         return self._profile_timestamp is not None
-        # return self.children is not None
 
     def name_lookup_complete(self) -> bool:
         """

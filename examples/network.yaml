@@ -13,9 +13,12 @@ hints:
       protocol_mux: "1234"                      # (str) - protocol_mux to associate w/ the relationship
       provider: "bar"                           # (str) - provider for the downstream node. Options: (`ssh`, `aws`)
       instance_provider: "aws"                  # (str) - instance provider, from which a instance of the service will be retrieved for crawling. Options: (`aws`)
-skips:              # a list of substrings for which services will be skipped if the $skip is a substring of the services name
-  protocol_muxes:   # these will not be crawled nor name_lookup'd
+skips:          # a list of substrings for which services will be skipped if the $skip is a substring of the services name
+  addresses:        # these will not be connected to or profiled in any way
+    - "1.2.3.4"
+    - "mypod-58888544dd-4dzsc"
+  protocol_muxes:   # these will not be connected to or profiled in any way
     - "foo"
-  service_names:    # these will have namelookup performed, but not crawled
+  service_names:    # these will have connections established and service name lookup performed, but not profiled
     - "bar"
-    - "baz
+    - "baz"

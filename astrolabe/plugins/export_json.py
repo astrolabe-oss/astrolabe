@@ -75,7 +75,6 @@ def load(file):
     with open(file, encoding="utf8") as open_file:
         loaded = json.load(open_file, object_hook=_deserialize_object)
         constants.ARGS.max_depth = int(loaded['args']['max_depth'])
-        constants.ARGS.skip_nonblocking_grandchildren = loaded['args']['skip_nonblocking_grandchildren']
 
         return loaded['tree']
 

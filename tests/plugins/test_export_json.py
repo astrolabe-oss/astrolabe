@@ -33,8 +33,7 @@ def test_load_case_args_primitives(tmp_path, mocker):
     stub_json = '''
 {
   "args": {
-    "max_depth": "%s",
-    "skip_nonblocking_grandchildren": true
+    "max_depth": "%s"
   },
   "tree": %s
 }
@@ -48,7 +47,6 @@ def test_load_case_args_primitives(tmp_path, mocker):
     # assert
     assert stub_tree == tree
     assert constants.ARGS.max_depth == max_depth
-    assert constants.ARGS.skip_nonblocking_grandchildren
 
 
 # pylint:disable=too-many-locals, unused-argument

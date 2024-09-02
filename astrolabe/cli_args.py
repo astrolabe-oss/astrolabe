@@ -83,9 +83,6 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
     discover_p.add_argument('-M', '--skip-protocol-muxes', nargs='+', default=[], metavar='MUX',
                             help='Skip discovering for children on services with these '
                                  'names (name lookup will still happen)')
-    discover_p.add_argument('-G', '--skip-nonblocking-grandchildren', action='store_true',
-                            help='Skip discovering of nonblocking children unless they '
-                                 'are direct children of the seed nodes')
     discover_p.add_argument('-x', '--obfuscate', action='store_true',
                             help="Obfuscate graph details.  Useful for sharing exported output outside of "
                                  "trusted organizations.")

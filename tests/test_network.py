@@ -91,7 +91,54 @@ protocols:
     assert is_database == protocol.is_database
 
 
-def test_skip_service_name(astrolabe_d, mocker):
+@pytest.mark.parametrize('test, should_skip', [
+    ('1.2.3.4', True),
+    ('mypod-xyz', True),
+    ('1.2.3', False),
+    ('2.3.4', False),
+    ('2.3', False),
+    ('mypod-xy', False),
+    ('xyz', False),
+    ('-', False),
+    ('pod', False)
+])
+def test_skip_address(astrolabe_d, mocker, test, should_skip):
+    """We are able to correctly match a address skip loaded from disk"""
+    # Technically an integration test that tests the interaction of spin_up() and skip_service_name()
+    # arrange
+    mocker.patch('astrolabe.network._validate', return_value=None)
+    hint_web_yaml = """
+skips:
+  addresses:
+    - "1.2.3.4"
+    - "mypod-xyz"
+"""
+    _write_stub_web_yaml(astrolabe_d, hint_web_yaml)
+
+    # act
+    network.init()
+
+    # assert
+    assert network.skip_address(test) == should_skip
+
+
+def test_skip_address_ignored_cidr():
+    assert network.skip_address("169.254.169.254")
+    assert not network.skip_address("169.254.169.1")
+
+
+@pytest.mark.parametrize("test, should_skip", [
+    ('bar', True),
+    ('barf', True),
+    ('foo', True),
+    ('foo-service', True),
+    ('food-service', True),
+    ('a-fool-service', True),
+    ('oof-service', False),
+    ('fo', False),
+    ('cats', False)
+])
+def test_skip_service_name(astrolabe_d, mocker, test, should_skip):
     """We are able to correctly match a service_name skip loaded from disk"""
     # Technically an integration test that tests the interaction of spin_up() and skip_service_name()
     # arrange
@@ -108,18 +155,21 @@ skips:
     network.init()
 
     # assert
-    assert network.skip_service_name('bar')
-    assert network.skip_service_name('barf')
-    assert network.skip_service_name('foo')
-    assert network.skip_service_name('foo-service')
-    assert network.skip_service_name('food-service')
-    assert network.skip_service_name('a-fool-service')
-    assert not network.skip_service_name('oof-service')
-    assert not network.skip_service_name('fo')
-    assert not network.skip_service_name('cats')
+    assert network.skip_service_name(test) == should_skip
 
 
-def test_skip_protocol_mux(astrolabe_d, mocker):
+@pytest.mark.parametrize("test, should_skip", [
+    ('bar', True),
+    ('barf', True),
+    ('foo', True),
+    ('foo-service', True),
+    ('food-service', True),
+    ('a-fool-service', True),
+    ('oof-service', False),
+    ('fo', False),
+    ('cats', False)
+])
+def test_skip_protocol_mux(astrolabe_d, mocker, test, should_skip):
     """We are able to correctly match a protocol_mux skip loaded from disk"""
     # Technically an integration test that tests the interaction of spin_up() and skip_protocol_mux()
     # arrange
@@ -136,15 +186,14 @@ skips:
     network.init()
 
     # assert
-    assert network.skip_service_name('bar')
-    assert network.skip_service_name('barf')
-    assert network.skip_service_name('foo')
-    assert network.skip_service_name('foo-service')
-    assert network.skip_service_name('food-service')
-    assert network.skip_service_name('a-fool-service')
-    assert not network.skip_service_name('oof-service')
-    assert not network.skip_service_name('fo')
-    assert not network.skip_service_name('cats')
+    assert network.skip_service_name(test) == should_skip
+
+
+def test_skip_protocol_mux_cli_arg(cli_args_mock):
+    skip_this_protocol_mux = 'foo_mux'
+    cli_args_mock.skip_protocol_muxes = [skip_this_protocol_mux]
+
+    assert network.skip_protocol_mux(skip_this_protocol_mux)
 
 
 def test_hints(astrolabe_d, mocker):

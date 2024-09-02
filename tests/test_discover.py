@@ -121,6 +121,8 @@ async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, pro
 
     # assert
     assert 'CONNECT_SKIPPED' in list(tree.values())[0].errors
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None
     provider_mock.open_connection.assert_not_called()
     provider_mock.lookup_name.assert_not_called()
     provider_mock.profile.assert_not_called()
@@ -138,6 +140,8 @@ async def test_discover_case_open_connection_handles_timeout_exception(tree, pro
     await discover.discover(tree, [])
 
     assert 'TIMEOUT' in list(tree.values())[0].errors
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None
     provider_mock.lookup_name.assert_not_called()
     provider_mock.profile.assert_not_called()
 
@@ -323,6 +327,8 @@ async def test_discover_case_cycle(tree, provider_mock):
 
     # assert
     assert 'CYCLE' in list(tree.values())[0].errors
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None
     provider_mock.lookup_name.assert_called_once()
     provider_mock.profile.assert_not_called()
 
@@ -460,27 +466,43 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
     assert hint_child_node.service_name == hint_nt.debug_identifier
 
 
-# respect CLI args
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_skip_protocol_mux(tree, provider_mock, cli_args_mock, mocker):
-    """Children discovered on these muxes are neither included in the tree - nor discovered"""
+async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mocker):
+    """Children discovered on these muxes are neither included as children - nor discovered"""
     # arrange
-    skip_this_protocol_mux = 'foo_mux'
-    cli_args_mock.skip_protocol_muxes = [skip_this_protocol_mux]
-    child_nt = node.NodeTransport(skip_this_protocol_mux, 'dummy_address')
-    provider_mock.lookup_name.return_value = 'bar_name'
+    child_nt = node.NodeTransport('foo_mux', 'dummy_address')
     provider_mock.profile.return_value = [child_nt]
     discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
+    mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
 
     # act
     await discover.discover(tree, [])
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert 0 == len(list(tree.values())[0].children)
-    assert 1 == discover_spy.call_count
+    assert len(list(tree.values())[0].children) == 0
+    assert discover_spy.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_discover_case_profile_skip_address(tree, provider_mock, mocker):
+    """Children discovered on these addresses are neither included as children - nor discovered"""
+    # arrange
+    child_nt = node.NodeTransport('foo_mux', 'dummy_address')
+    provider_mock.profile.return_value = [child_nt]
+    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
+    mocker.patch('astrolabe.network.skip_address', return_value=True)
+
+    # act
+    await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
+
+    # assert
+    assert len(list(tree.values())[0].children) == 0
+    assert discover_spy.call_count == 1
+
+
+# respect CLI args
 @pytest.mark.asyncio
 async def test_discover_case_respect_cli_skip_protocols(tree, provider_mock, ps_mock, cli_args_mock, mocker):
     """Crawling of protocols configured to be "skipped" does not happen at all."""
@@ -520,34 +542,6 @@ async def test_discover_case_respect_cli_disable_providers(tree, provider_mock, 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('child_blocking,grandchild_blocking,discoveries_expected,downstream_discoveries_expected',
-                         [(False, False, 2, 1), (True, False, 2, 2)])
-async def test_discover_case_respect_cli_skip_nonblocking_grandchildren(child_blocking, grandchild_blocking,
-                                                                        discoveries_expected,
-                                                                        downstream_discoveries_expected,
-                                                                        tree, provider_mock, protocol_mock, ps_mock,
-                                                                        cli_args_mock, mocker):
-    """When --skip-nonblocking-grandchildren is specified, include nonblocking children of the seed, but nowhere else"""
-    # arrange
-    cli_args_mock.skip_nonblocking_grandchildren = True
-    child_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address')
-    grandchild_nt = node.NodeTransport('dummy_protocol_mux_gc', 'dummy_address_gc')
-    provider_mock.lookup_name.side_effect = ['seed_name', 'child_name', 'grandchild_name']
-    provider_mock.profile.side_effect = [[child_nt], [grandchild_nt], []]
-    type(protocol_mock).blocking = mocker.PropertyMock(side_effect=[True, child_blocking, grandchild_blocking])
-    ps_mock.protocol = protocol_mock
-    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
-
-    # act
-    await discover.discover(tree, [])
-    await _wait_for_all_tasks_to_complete()
-
-    # assert
-    assert discover_spy.call_count == discoveries_expected
-    assert provider_mock.profile.call_count == downstream_discoveries_expected
-
-
-@pytest.mark.asyncio
 async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args_mock):
     """We should not profile if max-depth is exceeded"""
     # arrange
@@ -559,6 +553,8 @@ async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args
 
     # assert
     provider_mock.profile.assert_not_called()
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None
 
 
 @pytest.mark.asyncio
@@ -620,7 +616,43 @@ async def test_discover_case_respect_ps_service_name_rewrite(tree, provider_mock
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_network_skip(tree, provider_mock, mocker):
+async def test_discover_case_respect_network_skip_protocol_mux(tree, provider_mock, mocker):
+    """Skip protocol mux is respected for network"""
+    # arrange
+    skip_function = mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
+
+    # act
+    await discover.discover(tree, [])
+
+    # assert
+    provider_mock.open_connection.assert_not_called()
+    provider_mock.lookup_name.assert_not_called()
+    provider_mock.profile.assert_not_called()
+    skip_function.assert_called_once_with(list(tree.values())[0].protocol_mux)
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None
+
+
+@pytest.mark.asyncio
+async def test_discover_case_respect_network_skip_address(tree, provider_mock, mocker):
+    """Skip address is respected for network"""
+    # arrange
+    skip_function = mocker.patch('astrolabe.network.skip_address', return_value=True)
+
+    # act
+    await discover.discover(tree, [])
+
+    # assert
+    provider_mock.open_connection.assert_not_called()
+    provider_mock.lookup_name.assert_not_called()
+    provider_mock.profile.assert_not_called()
+    skip_function.assert_called_once_with(list(tree.values())[0].address)
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None
+
+
+@pytest.mark.asyncio
+async def test_discover_case_respect_network_skip_service_name(tree, provider_mock, mocker):
     """Skip service name is respected for network"""
     # arrange
     service_name = 'foo_name'
@@ -634,3 +666,5 @@ async def test_discover_case_respect_network_skip(tree, provider_mock, mocker):
     provider_mock.lookup_name.assert_called_once()
     provider_mock.profile.assert_not_called()
     skip_function.assert_called_once_with(service_name)
+    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].get_profile_timestamp() is not None

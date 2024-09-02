@@ -82,7 +82,7 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
                 nodes_to_export.pop(node_ref)
                 continue
 
-            if node.profile_complete(depth):
+            if node.profile_complete():
                 # this sleep allows human eyes to comprehend output
                 if print_slowly_for_humans:
                     await asyncio.sleep(_get_sleep_for_humans_seconds())

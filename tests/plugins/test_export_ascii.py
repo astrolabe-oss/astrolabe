@@ -243,6 +243,8 @@ async def test_export_tree_case_node_hint_merged(tree_named, protocol_fixture, n
     tree = tree_named
     list(tree.values())[0].children = {'discovered': child_node_discovered, 'hinted': child_node_hint}
     list(tree.values())[0].set_profile_timestamp()
+    child_node_discovered.set_profile_timestamp()
+    child_node_hint.set_profile_timestamp()
 
     # act
     await _helper_export_tree_with_timeout(tree)

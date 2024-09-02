@@ -27,21 +27,16 @@ def test_export_tree_case_respect_cli_rankdir_options(cli_args_mock, rankdir, tr
     assert f"graph [dpi=300 rankdir={rankdir}]" in captured.out
 
 
-@pytest.mark.parametrize('skip_nonblocking_grandchildren,expected_rankdir',
-                         [(False, GRAPHVIZ_RANKDIR_TOP_TO_BOTTOM),
-                          (True, GRAPHVIZ_RANKDIR_LEFT_TO_RIGHT)])
-def test_export_tree_case_respect_cli_rankdir_auto(skip_nonblocking_grandchildren, expected_rankdir, cli_args_mock,
-                                                   tree_named, capsys):
+def test_export_tree_case_respect_cli_rankdir_auto(cli_args_mock, tree_named, capsys):
     # arrange
     cli_args_mock.export_graphviz_rankdir = GRAPHVIZ_RANKDIR_AUTO
-    cli_args_mock.skip_nonblocking_grandchildren = skip_nonblocking_grandchildren
 
     # act
-    export_graphviz.export_tree(tree_named, True)
+    export_graphviz.export_tree(tree_named, GRAPHVIZ_RANKDIR_TOP_TO_BOTTOM)
     captured = capsys.readouterr()
 
     # assert
-    assert f"graph [dpi=300 rankdir={expected_rankdir}]" in captured.out
+    assert f"graph [dpi=300 rankdir={GRAPHVIZ_RANKDIR_TOP_TO_BOTTOM}]" in captured.out
 
 
 @pytest.mark.parametrize('highlighted_service', ['child_service_name', 'parent_service_name'])
