@@ -2,8 +2,8 @@
 Module Name: discover
 
 Description:
-The high level async, recursive discovering functionality of astrolabe/discover.  Here is where we recursively
-profile nodes and, compile async tasks, lookup node names, and parse children until complete.
+The high level async, iterative discovering functionality of astrolabe/discover. Here is where we iteratively
+profile nodes, compile async tasks, lookup node names, and parse children until complete.
 
 Copyright:
 Copyright 2024 Magellanbot, Inc
@@ -15,43 +15,66 @@ SPDX-License-Identifier: Apache-2.0
 import asyncio
 import sys
 import traceback
-from dataclasses import replace, is_dataclass, fields
-from typing import Dict, List
+from dataclasses import replace
+from typing import Dict, List, Tuple, Optional
 
 from termcolor import colored
 
-from astrolabe import profile_strategy, network, constants, logs, obfuscate, providers
+from astrolabe import database, profile_strategy, network, constants, logs, obfuscate, providers
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.providers import ProviderInterface
-from astrolabe.node import Node, NodeTransport
+from astrolabe.node import Node
 
-node_inventory_by_address: Dict[str, Node] = {}  # {address: Node()}
-node_inventory_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
-node_inventory_null_name_by_address: List[str] = []  # [address]
+# An internal cache which prevents astrolabe from re-profiling a Compute node of the same Application
+# that has already been profiled on a different address. We may not want this "feature" going forward
+# if we want to do more thorough/exhaustive profiling of every individual Compute node in a cluster.
 child_cache: Dict[str, Dict[str, Node]] = {}  # {'provider_ref:service_name': {node_ref, Node}}
 
 
 class DiscoveryException(Exception):
     def __init__(self, message=None):
         super().__init__(message)
-        self.node = None
+        self.node: Optional[Node] = None
+        self.ancestors: Optional[List[str]] = None
 
 
-async def discover(tree: Dict[str, Node], ancestors: List[str]):
-    depth = len(ancestors)
-    logs.logger.debug("Found %s nodes to profile at depth: %d", str(len(tree)), depth)
+stack: Dict[str, Tuple[Node, List[str]]]
 
-    asyncio_tasks = []
 
-    for node_ref, node in tree.items():
-        asyncio_tasks.append(_discover_node(node_ref, node, ancestors))
+async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
+    global stack
+    stack = {f"{n.provider}:{n.address}": (n, initial_ancestors) for n in initial_tree.values()}
+    coroutines = []
 
-    results = await asyncio.gather(*asyncio_tasks, return_exceptions=True)
+    while len([n for n in stack.values() if not n[0].profile_complete()]) > 0:
+        sleep_secs = 0.01
+        unprofiled_stack = {key: (n, a) for key, (n, a) in stack.items()
+                            if not n.profile_complete() and not n.profile_locked()}
+        if not unprofiled_stack:
+            logs.logger.debug("Waiting for pending profiles to complete, sleeping %d", sleep_secs)
+            await asyncio.sleep(sleep_secs)
+            continue
 
-    for result in results:
-        if isinstance(result, DiscoveryException):
-            exc = result.__cause__
-            node = result.node
+        logs.logger.debug("Stack of %d nodes found to profile", len(unprofiled_stack))
+        node_ref, (node, ancestors) = next(iter(unprofiled_stack.items()))
+        depth = len(ancestors)
+        logs.logger.debug("Profiling node %s at depth: %d", node_ref, depth)
+
+        node.aquire_profile_lock()
+        coro = asyncio.create_task(_discover_node(node_ref, node, ancestors))
+        coroutines.append(coro)
+        await asyncio.sleep(0)  # explicitly hand off the loop
+        await asyncio.sleep(sleep_secs)  # actually give it a sec
+
+    # For now, we are doing a fail fast on unknown discovery exceptions.
+    #  TODO: Eventually, we will be more elegant about async error handling!
+    for coro in coroutines:
+        try:
+            await coro
+        except DiscoveryException as disc_exc:
+            exc = disc_exc.__cause__
+            node = disc_exc.node
+            ancestors = disc_exc.ancestors
             child_of = f"child of {ancestors[len(ancestors) - 1]}" if len(ancestors) > 0 else 'SEED'
             logs.logger.error("Exception %s occurred connecting to %s:%s child of `%s`",
                               exc, node.provider, node.address, child_of)
@@ -60,39 +83,55 @@ async def discover(tree: Dict[str, Node], ancestors: List[str]):
 
 
 async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
+    global stack  # pylint:disable=global-variable-not-assigned
     if node.get_profile_timestamp() is not None:
         logs.logger.info("Profile already completed for node: %s:%s (%s)",
                          node.provider, node.address, node.service_name)
-        return
+        return node, {}
+
     depth = len(ancestors)
     provider = providers.get_provider_by_ref(node.provider)
+
     try:
-        await _discovery_algo(node_ref, node, ancestors, provider, depth)
+        profiled_children = await _discovery_algo(node_ref, node, ancestors, provider, depth)
+        node.children = {**node.children, **profiled_children}  # merge with pre-profiled children
+
+        # ONLY ITERATE OVER CHILDREN W/ ADDRESS
+        #  TODO: Better error handling for children discovered, for some reason?, without address...
+        children_with_address = [child for child in node.children.values() if child.address]
+
+        for child in children_with_address:
+            stack[f"{child.provider}:{child.address}"] = (child, ancestors + [node.service_name])
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
         logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy.name}, 'yellow')
         node.errors['TIMEOUT'] = True
-        return
     except Exception as exc:
         dexc = DiscoveryException(exc)
         dexc.node = node
+        dexc.ancestors = ancestors
         raise dexc from exc
     finally:
+        logs.logger.debug("Setting profile timestamp for %s", node_ref)
         node.set_profile_timestamp()
+        node.clear_profile_lock()
+        database.save_node(node)
 
 
-async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provider: ProviderInterface, depth: int):
+#  pylint:disable=too-many-return-statements
+async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provider: ProviderInterface, depth: int)\
+        -> Dict[str, Node]:  # children
     # SKIP PROTOCOL MUX
     if network.skip_protocol_mux(node.protocol_mux):
         logs.logger.debug("Not opening connection: skip protocol mux (%s)", node.protocol_mux)
         node.errors['CONNECT_SKIPPED'] = True
-        return
+        return {}
 
     # SKIP ADDRESS
     if node.address and network.skip_address(node.address):
         logs.logger.debug("Not opening connection: skip address (%s)", node.address)
         node.errors['CONNECT_SKIPPED'] = True
-        return
+        return {}
 
     # OPEN CONNECTION
     logs.logger.debug("Opening connection: %s", node.address)
@@ -109,39 +148,27 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
     if node.service_name and network.skip_service_name(node.service_name):
         logs.logger.debug("Not profiling: skip service name (%s)", node.service_name)
         node.errors['PROFILE_SKIPPED'] = True
-        return
+        return {}
 
     # DETECT CYCLES
     if node.service_name and node.service_name in ancestors:
         node.errors['CYCLE'] = True
-        return
+        return {}
 
     # MAX DEPTH
     if len(ancestors) > constants.ARGS.max_depth - 1:
         logs.logger.debug("Reached --max-depth of %d at depth: %d", constants.ARGS.max_depth, depth)
-        return
+        return {}
 
     # DO NOT PROFILE NODE w/ ERRORS
     if bool(node.errors):
         logs.logger.debug("Not profiling service %s(%s) due to accrued errors: (%s)",
                           node.service_name, node.address, node.errors)
         node.errors['PROFILE_SKIPPED'] = True
-        return
+        return {}
 
     # PROFILE
-    profiled_children = await _profile_with_hints(node, node_ref, conn)
-
-    # MERGE CHILDREN W/ INVENTORY
-    logs.logger.debug("Merging %d existing children for %s", len(node.children), node.address)
-    _merge_children_with_inventory_nodes(profiled_children)
-
-    # SET CHILDREN
-    node.children = {**node.children, **profiled_children}  # merge with pre-profiled children
-
-    # RECURSE
-    children_with_address = {ref: child for ref, child in node.children.items() if child.address}
-    if children_with_address:
-        asyncio.ensure_future(discover(children_with_address, ancestors + [node.service_name]))
+    return await _profile_with_hints(node, node_ref, conn)
 
 
 async def _lookup_service_name(node: Node, provider: providers.ProviderInterface,
@@ -152,7 +179,7 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
         node.warnings['NAME_LOOKUP_FAILED'] = True
         return
 
-    # SERVICE NAME ALREADY "CACHED"
+    # SERVICE NAME FROM INVENTORYING
     if node.service_name:
         logs.logger.debug("Using pre-profiled/cached service name %s for address: %s)", node.service_name, node.address)
         return
@@ -164,7 +191,6 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
     # CHECK NOT NONE
     if not service_name:
         logs.logger.debug("Name discovery failed for address %s", node.address)
-        node_inventory_null_name_by_address.append(node.address)
         node.warnings['NAME_LOOKUP_FAILED'] = True
         return
 
@@ -176,7 +202,6 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
 
     # WRITE/CACHE
     node.service_name = service_name
-    node_inventory_by_address[node.address] = node
 
 
 # pylint:disable=too-many-locals
@@ -189,7 +214,7 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
     cache_key = f"{node.provider}:{node.service_name}"
     if cache_key in child_cache:
         logs.logger.debug("Found %d children in cache for:%s", len(child_cache[cache_key]), cache_key)
-        # we must to this copy to avoid various contention and infinite recursion bugs
+        # we must do this copy to avoid various contention and infinite recursion bugs
         return {r: replace(n, children={}, warnings=n.warnings.copy(), errors=n.errors.copy())
                 for r, n in child_cache[cache_key].items()}
 
@@ -222,11 +247,11 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
                 logs.logger.debug("Excluded profile result: `%s`. Reason: protocol_mux_skipped",
                                   node_transport.protocol_mux)
                 continue
-            child_ref, child = _create_node(prof_strategy, node_transport)
+            child_ref, child = database.create_node(prof_strategy, node_transport)
             # if we have inventoried this node already, use that!
-            if child.address and child.address in node_inventory_by_address:
-                inventory_node = node_inventory_by_address[child.address]
-                _merge_node(inventory_node, child)
+            inventory_node = database.get_node_by_address(child.address)
+            if inventory_node:
+                database.merge_node(inventory_node, child)
                 child = inventory_node
             children[child_ref] = child
 
@@ -274,66 +299,3 @@ def _compile_profile_tasks_and_strategies(address: str, service_name: str, provi
         )
 
     return tasks, profile_strategies
-
-
-###########
-# HELPERS #
-###########
-
-
-def _merge_children_with_inventory_nodes(children: Dict[str, Node]) -> None:
-    """we want nodes in the tree and inventory to be the same memory space nodes, so
-          here we merge the tree node's attributes into the inventory node, and then
-          drop the tree node and replace it with the pointer to the inventory node"""
-    for ref, node in children.items():
-        if node.address in node_inventory_by_address:
-            inventory_node = node_inventory_by_address[node.address]
-            _merge_node(copyto_node=inventory_node, copyfrom_node=node)
-            # replace dictionary node with the inventory node to preserve memory linkage
-            children[ref] = inventory_node
-
-
-def _merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
-    if not is_dataclass(copyto_node) or not is_dataclass(copyfrom_node):
-        raise ValueError("Both copyto_node and copyfrom_node must be dataclass instances")
-
-    for field in fields(Node):
-        attr_name = field.name
-        inventory_preferred_attrs = ['provider', 'node_type']
-        if attr_name in inventory_preferred_attrs:
-            continue
-
-        copyfrom_value = getattr(copyfrom_node, attr_name)
-
-        # Only copy if the source value is not None, empty string, empty dict, or empty list
-        if copyfrom_value is not None and copyfrom_value != "" and copyfrom_value != {} and copyfrom_value != []:
-            setattr(copyto_node, attr_name, copyfrom_value)
-
-
-def _create_node(ps_used: ProfileStrategy, node_transport: NodeTransport) -> (str, Node):
-    provider = ps_used.determine_child_provider(node_transport.protocol_mux, node_transport.address)
-    from_hint = constants.PROVIDER_HINT in ps_used.providers
-    if constants.ARGS.obfuscate:
-        node_transport = obfuscate.obfuscate_node_transport(node_transport)
-    node = Node(
-        profile_strategy=ps_used,
-        protocol=ps_used.protocol,
-        protocol_mux=node_transport.protocol_mux,
-        provider=provider,
-        containerized=providers.get_provider_by_ref(provider).is_container_platform(),
-        from_hint=from_hint,
-        address=node_transport.address,
-        service_name=node_transport.debug_identifier if from_hint else None,
-        metadata=node_transport.metadata
-    )
-
-    # warnings/errors
-    if not node_transport.address or 'null' == node_transport.address:
-        node.errors['NULL_ADDRESS'] = True
-    if 0 == node_transport.num_connections:
-        node.warnings['DEFUNCT'] = True
-
-    node_ref = '_'.join(x for x in [ps_used.protocol.ref, node_transport.address,
-                        node_transport.protocol_mux, node_transport.debug_identifier]
-                        if x is not None)
-    return node_ref, node

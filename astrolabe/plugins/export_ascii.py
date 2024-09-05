@@ -113,8 +113,9 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
         if constants.ARGS.debug:
             logs.logger.debug("Waiting for discover to complete for %d nodes at depth %d...",
                               len(nodes_to_export), len(parents))
+
             logs.logger.debug(nodes_to_export)
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
 
 
 def _get_sleep_for_humans_seconds() -> float:
@@ -270,7 +271,7 @@ async def _wait_for_service_names(nodes: Dict[str, Node], depth: int) -> None:
 
 
 def _remaining_nodes_for_debugging(nodes: Dict[str, Node]) -> dict:
-    return {node_ref: {**asdict(node), 'discover_strategy': node.profile_strategy.name}
+    return {node_ref: {**asdict(node), 'profile_strategy': node.profile_strategy.name}
             for node_ref, node in nodes.items() if not node.name_lookup_complete()}
 
 

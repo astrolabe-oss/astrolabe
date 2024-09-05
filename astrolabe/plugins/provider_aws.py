@@ -24,8 +24,7 @@ import boto3
 from botocore.exceptions import ClientError
 from termcolor import colored
 
-from astrolabe import constants, logs
-from astrolabe.discover import node_inventory_by_dnsname
+from astrolabe import database, constants, logs
 from astrolabe.node import Node, NodeTransport, NodeType
 from astrolabe.network import Hint
 from astrolabe.providers import ProviderInterface
@@ -130,12 +129,14 @@ class ProviderAWS(ProviderInterface):
                 name = instance['DBInstanceIdentifier']
 
                 # Add instance information to the global dictionary
-                node_inventory_by_dnsname[address] = Node(
+                node = Node(
                     node_type=NodeType.RESOURCE,
                     profile_strategy=INVENTORY_PROFILE_STRATEGY,
                     provider='aws',
                     service_name=name
                 )
+                node.set_profile_timestamp()
+                database.save_node_by_dnsname(node, address)
 
     def _inventory_elasticache(self):
         paginator = self.elasticache_client.get_paginator('describe_cache_clusters')
@@ -144,12 +145,14 @@ class ProviderAWS(ProviderInterface):
                 cluster_name = cluster['CacheClusterId']
                 for node in cluster['CacheNodes']:
                     address = node['Endpoint']['Address']
-                    node_inventory_by_dnsname[address] = Node(
+                    node = Node(
                         node_type=NodeType.RESOURCE,
                         profile_strategy=INVENTORY_PROFILE_STRATEGY,
                         provider='aws',
                         service_name=cluster_name
                     )
+                    node.set_profile_timestamp()
+                    database.save_node_by_dnsname(node, address)
 
     # pylint:disable=too-many-locals,too-many-nested-blocks
     def _inventory_load_balancers(self):
@@ -212,7 +215,7 @@ class ProviderAWS(ProviderInterface):
                     service_name=name,
                     children=asg_nodes
                 )
-                node_inventory_by_dnsname[address] = lb_node
+                database.save_node_by_dnsname(lb_node, address)
 
 
 def _die(err):

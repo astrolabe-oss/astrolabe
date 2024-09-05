@@ -24,13 +24,12 @@ from kubernetes_asyncio.stream import WsApiClient
 from kubernetes_asyncio.client.rest import ApiException
 from termcolor import colored
 
-from astrolabe import constants, logs
+from astrolabe import database, constants, logs
 from astrolabe.network import Hint
 from astrolabe.node import NodeTransport, NodeType, Node
 from astrolabe.profile_strategy import ProfileStrategy, INVENTORY_PROFILE_STRATEGY
 from astrolabe.providers import ProviderInterface, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
-from astrolabe.discover import node_inventory_by_address, node_inventory_by_dnsname
 
 pod_cache: Dict[str, client.models.V1Pod] = {}
 
@@ -89,7 +88,7 @@ class ProviderKubernetes(ProviderInterface):
            to get the DNS names for anything in the astrolabe DNS Cache that we don't yet have
            """
         asyncio_tasks = []
-        for hostname, node in node_inventory_by_dnsname.items():
+        for hostname, node in database.get_nodes_pending_dnslookup():
             asyncio_tasks.append(self._sidecar_lookup_hostname(address, hostname, node))
         await asyncio.gather(*asyncio_tasks)
 
@@ -105,34 +104,30 @@ class ProviderKubernetes(ProviderInterface):
         containers = [c for c in containers if True not in
                       [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
         for container in containers:
+            # IDE inspection doesn't think that this coroutine is async/awaitable, but it is
             ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
                                                                     container=container.name, command=exec_command,
                                                                     stderr=True, stdin=False, stdout=True, tty=False)
             ip_addrs = ret.strip().split('\n') if ret else None
             for ip_addr in ip_addrs:
-                if ip_addr and ip_addr not in node_inventory_by_address:
+                if ip_addr and database.get_node_by_address(ip_addr) is None:
                     logs.logger.debug("Discovered IP %s for hostname %s: from address %s",
                                       ip_addr, hostname, address)
                     # TODO: we are glossing over the fact that there can multiple addresses per
                     #  node for DNS records here!  Solve that problem later!
                     node.address = ip_addr
-                    node_inventory_by_address[ip_addr] = node
+                    database.save_node(node)
 
     async def profile(self, address: str, pfs: ProfileStrategy, _: Optional[type]) -> List[NodeTransport]:
         # profile k8s service load balancer
-        k8s_lbs = [node.service_name for node in node_inventory_by_dnsname.values()
-                   if node.provider == 'k8s' and node.node_type == NodeType.TRAFFIC_CONTROLLER]
-        if address in node_inventory_by_address and node_inventory_by_address[address].service_name in k8s_lbs:
+        if database.node_is_k8s_load_balancer(address):
             # k8s lbs are pre-profiled during inventory
             logs.logger.debug("Profile of k8s load balancer (%s) requested "
                               "and skipped due to pre-profiling during inventory", address)
             return []
 
         # profile k8s service
-        is_k8s_service = (address in node_inventory_by_address
-                          and node_inventory_by_address[address].provider == 'k8s'
-                          and node_inventory_by_address[address].node_type == NodeType.DEPLOYMENT)
-        if is_k8s_service:
+        if database.node_is_k8s_service(address):
             logs.logger.debug("Profiling address %s as k8s service", address)
             return await self._profile_k8s_service(address)
 
@@ -242,8 +237,8 @@ class ProviderKubernetes(ProviderInterface):
                     service_name=lb_name,
                     children={f"K8S_{k8s_service_address}": k8s_service_node}
                 )
-                node_inventory_by_address[k8s_service_address] = k8s_service_node
-                node_inventory_by_dnsname[lb_address] = lb_node
+                database.save_node(k8s_service_node)
+                database.save_node_by_dnsname(lb_node, lb_address)
 
 
 def _parse_label_selector(service_name: str) -> str:

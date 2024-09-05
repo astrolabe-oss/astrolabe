@@ -26,12 +26,11 @@ import paramiko
 from asyncssh import ChannelOpenError, SSHClientConnection
 from termcolor import colored
 
-from astrolabe import constants, logs
+from astrolabe import database, constants, logs
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.providers import ProviderInterface, TimeoutException, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
 from astrolabe.node import Node, NodeTransport
-from astrolabe.discover import node_inventory_by_address, node_inventory_by_dnsname
 
 bastion: Optional[SSHClientConnection] = None
 CONNECT_TIMEOUT = 5
@@ -242,9 +241,9 @@ async def _sidecar_lookup_hostnames(address: str, connection: SSHClientConnectio
        to get the DNS names for anything in the astrolabe DNS Cache that we don't yet have
        """
     asyncio_tasks = []
-    for hostname, node in node_inventory_by_dnsname.items():
+    for hostname, node in database.get_nodes_pending_dnslookup():
         asyncio_tasks.append(_sidecar_lookup_hostname(address, hostname, node, connection))
-    asyncio.gather(*asyncio_tasks)
+    await asyncio.gather(*asyncio_tasks)
 
 
 async def _sidecar_lookup_hostname(address: str, hostname: str, node: Node, connection: SSHClientConnection) -> None:
@@ -258,8 +257,8 @@ async def _sidecar_lookup_hostname(address: str, hostname: str, node: Node, conn
     ip_addrs = result.stdout.strip() if result else None
     for addr_bytes in ip_addrs.split('\n'):
         address = str(addr_bytes)
-        if address and address not in node_inventory_by_address:
+        if address and database.get_node_by_address(address) is None:
             logs.logger.debug(f"Discovered IP %s for {hostname}: frokm address %s", addr_bytes, address)
             node.address = address
-            node_inventory_by_address[address] = node
+            database.save_node(node)
     return ip_addrs

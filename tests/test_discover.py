@@ -10,15 +10,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from astrolabe.providers import TimeoutException
-from astrolabe import discover, node
+from astrolabe import database, discover, node, providers
 
 
 @pytest.fixture(autouse=True)
 def clear_caches():
     """Clear discover.py caches between tests - otherwise our asserts for function calls may not pass"""
-    discover.node_inventory_by_address = {}
-    discover.node_inventory_by_dnsname = {}
-    discover.node_inventory_null_name_by_address = []
+    database._node_index_by_address = {}  # pylint:disable=protected-access
+    database._node_index_by_dnsname = {}  # pylint:disable=protected-access
     discover.child_cache = {}
 
 
@@ -85,6 +84,61 @@ async def _wait_for_all_tasks_to_complete():
     event_loop = asyncio.get_running_loop()
     while len(asyncio.all_tasks(event_loop)) > 1:
         await asyncio.sleep(0.1)  # we "fire and forget" in discover() and so have to "manually" "wait"
+
+
+# discover::discover - stack processing
+@pytest.mark.asyncio
+async def test_discover_case_respects_profile_locking(tree, provider_mock):
+    """If profile locking is not working... it will repeatedly profile the node instead
+         of only once while it is locked!"""
+    # arrange
+    node1 = list(tree.values())[0]
+
+    async def slow_open_connection(_):
+        await asyncio.sleep(.1)
+    provider_mock.open_connection.side_effect = slow_open_connection
+
+    # act
+    await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
+
+    # assert
+    assert provider_mock.open_connection.call_count == 1
+    assert provider_mock.lookup_name.call_count == 1
+    assert provider_mock.profile.call_count == 1
+    assert provider_mock.sidecar.call_count == 1
+    assert not node1.profile_locked()
+
+
+# Discover stack processing
+@pytest.mark.parametrize('exc, causes_exit', [
+    (None, False),
+    (providers.TimeoutException, False),
+    (asyncio.TimeoutError, False),
+    (discover.DiscoveryException, True),
+    (Exception, True)
+])
+@pytest.mark.asyncio
+async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, causes_exit):
+    """Whether profile is success, causes a non-exiting exception, or an exiting exception
+        profile_complete() should always be marked!"""
+    # arrange
+    node1 = list(tree.values())[0]
+    provider_mock.open_connection.side_effect = exc
+
+    # pre-assert
+    assert not node1.profile_complete()
+
+    # act
+    if causes_exit:
+        with pytest.raises(SystemExit):
+            await discover.discover(tree, [])
+    else:
+        await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
+
+    # assert
+    assert node1.profile_complete()
 
 
 # Calls to ProviderInterface::open_connection
@@ -173,23 +227,30 @@ async def test_discover_case_open_connection_handles_exceptions(tree, provider_m
     # act/assert
     with pytest.raises(SystemExit):
         await discover.discover(tree, [])
+        await _wait_for_all_tasks_to_complete()
 
 
 # Calls to ProviderInterface::lookup_name
 @pytest.mark.asyncio
-async def test_discover_case_lookup_name_uses_cache(tree, provider_mock):
-    """Validate the calls to lookup_name for the same address are cached"""
+async def test_discover_case_lookup_name_uses_cache(tree, provider_mock, ps_mock):
+    """Validate the calls to lookup_name for the same address are cached.  We uses 3 levels of the tree
+       to ensure that the 2nd time calls are made for a node of this address, that there has been async
+       propagation time for caching"""
     # arrange
-    node = list(tree.values())[0]
-    tree['same_node_again'] = node
+    name1 = 'foo_name1'
+    node1 = list(tree.values())[0]
+    node2 = node.NodeTransport('whatever', 'foo_addy2')
+    node2_child = node.NodeTransport(node1.protocol_mux, node1.address)
+    provider_mock.lookup_name.side_effect = [name1, 'node_2_service_name', name1]
+    provider_mock.profile.side_effect = [[node2], [node2_child], []]
+    ps_mock.providers = [provider_mock.ref()]
 
     # act
     await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert node.address in discover.node_inventory_by_address
-    assert discover.node_inventory_by_address[node.address] == node
-    provider_mock.lookup_name.assert_called_once()
+    assert provider_mock.lookup_name.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -387,24 +448,22 @@ async def test_discover_case_profile_results_parsed(protocol_mux, address, debug
 
 # Recursive calls to discover::discover()
 @pytest.mark.asyncio
-async def test_discover_case_children_with_address_discovered(tree, provider_mock, ps_mock, mocker):
-    """Discovered children with an address are recursively discovered """
+async def test_discover_case_children_with_address_discovered(tree, provider_mock, ps_mock):
+    """Discovered children with an address are subsequently discovered """
     # arrange
     child_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address')
     provider_mock.lookup_name.side_effect = ['seed_name', 'child_name']
     provider_mock.profile.side_effect = [[child_nt], []]
     ps_mock.providers = [provider_mock.ref()]
-    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
 
     # act
     await discover.discover(tree, [])
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert 2 == discover_spy.call_count
-    child_node = discover_spy.await_args.args[0][list(discover_spy.await_args.args[0])[0]]
-    assert 'dummy_address' == child_node.address
-    assert list(tree.values())[0].service_name == discover_spy.await_args.args[1][0]
+    assert len(list(tree.values())[0].children) == 1
+    child_node = list(list(tree.values())[0].children.values())[0]
+    assert child_node.address == 'dummy_address'
 
 
 @pytest.mark.asyncio
