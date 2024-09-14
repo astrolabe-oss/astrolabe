@@ -1,9 +1,7 @@
 from dataclasses import is_dataclass, fields
 from typing import Dict, Optional
 
-from astrolabe import constants, obfuscate, providers
-from astrolabe.node import Node, NodeTransport, NodeType
-from astrolabe.profile_strategy import ProfileStrategy
+from astrolabe.node import Node, NodeType
 
 _node_index_by_address: Dict[str, Node] = {}  # {address: Node()}
 _node_index_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
@@ -88,35 +86,6 @@ def node_is_k8s_service(address: str) -> bool:
 
     node = _node_index_by_address[address]
     return node.provider == 'k8s' and node.node_type == NodeType.DEPLOYMENT
-
-
-def create_node(ps_used: ProfileStrategy, node_transport: NodeTransport) -> (str, Node):
-    provider = ps_used.determine_child_provider(node_transport.protocol_mux, node_transport.address)
-    from_hint = constants.PROVIDER_HINT in ps_used.providers
-    if constants.ARGS.obfuscate:
-        node_transport = obfuscate.obfuscate_node_transport(node_transport)
-    node = Node(
-        profile_strategy=ps_used,
-        protocol=ps_used.protocol,
-        protocol_mux=node_transport.protocol_mux,
-        provider=provider,
-        containerized=providers.get_provider_by_ref(provider).is_container_platform(),
-        from_hint=from_hint,
-        address=node_transport.address,
-        service_name=node_transport.debug_identifier if from_hint else None,
-        metadata=node_transport.metadata
-    )
-
-    # warnings/errors
-    if not node_transport.address or 'null' == node_transport.address:
-        node.errors['NULL_ADDRESS'] = True
-    if 0 == node_transport.num_connections:
-        node.warnings['DEFUNCT'] = True
-
-    node_ref = '_'.join(x for x in [ps_used.protocol.ref, node_transport.address,
-                        node_transport.protocol_mux, node_transport.debug_identifier]
-                        if x is not None)
-    return node_ref, node
 
 
 def merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
