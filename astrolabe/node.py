@@ -11,7 +11,7 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import json
@@ -60,6 +60,7 @@ class Node:  # pylint:disable=too-many-instance-attributes
     from_hint: bool = False
     address: str = None
     service_name: str = None
+    aliases: List[str] = field(default_factory=list)  # such as DNS names
     _profile_timestamp: Optional[datetime] = None
     _profile_lock_time: Optional[datetime] = None
     children: Dict[str, 'Node'] = field(default_factory=dict)
@@ -90,6 +91,18 @@ class Node:  # pylint:disable=too-many-instance-attributes
 
     def __repr__(self):
         return self.__str__()
+
+    def debug_id(self, shorten=60):
+        clarifier = 'UNKNOWN'
+        if self.address:
+            clarifier = self.address
+
+        if len(self.aliases) > 0:
+            clarifier = self.aliases[0]
+
+        debug_id = f"{self.provider}:{clarifier}"
+        short = debug_id[:shorten] + '...' if len(debug_id) > shorten else debug_id
+        return short
 
     def is_database(self):
         return self.protocol_mux in database_muxes or self.protocol.is_database

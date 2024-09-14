@@ -251,14 +251,18 @@ async def _sidecar_lookup_hostname(address: str, hostname: str, node: Node, conn
        to get the DNS names for anything in the astrolabe DNS Cache that we don't yet have
        """
     sidecar_command = f"getent hosts {hostname} | awk '{{print $1}}'"
-    logs.logger.debug(f"Running sidecar command: {sidecar_command} for address %s", address)
+    logs.logger.debug("Looking up ipaddresses for hostname %s on host %s", hostname, address)
     async with CONNECTION_SEMAPHORE:
         result = await connection.run(sidecar_command, check=True)
-    ip_addrs = result.stdout.strip() if result else None
-    for addr_bytes in ip_addrs.split('\n'):
+    if not result:
+        logs.logger.info("No ipaddres found for hostname %s on host %s", hostname, address)
+        return
+
+    ip_addrs = result.stdout.strip().split('\n')
+    logs.logger.info("Found ipaddresses: [%s] for hostname %s on host %s", ",".join(ip_addrs), hostname, address)
+    for addr_bytes in ip_addrs:
         address = str(addr_bytes)
         if address and database.get_node_by_address(address) is None:
-            logs.logger.debug(f"Discovered IP %s for {hostname}: frokm address %s", addr_bytes, address)
+            logs.logger.debug(f"Discovered IP %s for {hostname}: from address %s", addr_bytes, address)
             node.address = address
             database.save_node(node)
-    return ip_addrs

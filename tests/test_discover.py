@@ -18,7 +18,9 @@ def clear_caches():
     """Clear discover.py caches between tests - otherwise our asserts for function calls may not pass"""
     database._node_index_by_address = {}  # pylint:disable=protected-access
     database._node_index_by_dnsname = {}  # pylint:disable=protected-access
+    database._node_primary_index = {}  # pylint:disable=protected-access
     discover.child_cache = {}
+    discover.discovery_ancestors = {}
 
 
 @pytest.fixture(autouse=True)
@@ -322,7 +324,12 @@ async def test_discover_case_profile_caching(tree, node_fixture_factory, provide
                                              name1, name2, provider1, provider2, uses_cache):
     """Validate the calls to profile for the same service_name and provider are cached.  Caching is only guaranteed for
     different depths in the tree since siblings execute concurrently - and so we have to test a tree with more
-    depth > 1"""
+    depth > 1
+      node1
+        └> node2
+            └> node2_child (we are testing whether this node is cached based on node1)
+
+    """
     # arrange
     node1 = list(tree.values())[0]
     node1.provider = provider1

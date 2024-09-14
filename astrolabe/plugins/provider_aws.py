@@ -125,7 +125,7 @@ class ProviderAWS(ProviderInterface):
         paginator = self.rds_client.get_paginator('describe_db_instances')
         for page in paginator.paginate():
             for instance in page['DBInstances']:
-                address = instance['Endpoint']['Address']
+                rds_address = instance['Endpoint']['Address']
                 name = instance['DBInstanceIdentifier']
 
                 # Add instance information to the global dictionary
@@ -133,10 +133,12 @@ class ProviderAWS(ProviderInterface):
                     node_type=NodeType.RESOURCE,
                     profile_strategy=INVENTORY_PROFILE_STRATEGY,
                     provider='aws',
-                    service_name=name
+                    service_name=name,
+                    aliases=[rds_address]
                 )
                 node.set_profile_timestamp()
-                database.save_node_by_dnsname(node, address)
+                database.save_node(node)
+                logs.logger.info("Inventoried 1 AWS RDS node: %s", node.debug_id())
 
     def _inventory_elasticache(self):
         paginator = self.elasticache_client.get_paginator('describe_cache_clusters')
@@ -144,22 +146,24 @@ class ProviderAWS(ProviderInterface):
             for cluster in page['CacheClusters']:
                 cluster_name = cluster['CacheClusterId']
                 for node in cluster['CacheNodes']:
-                    address = node['Endpoint']['Address']
+                    es_address = node['Endpoint']['Address']
                     node = Node(
                         node_type=NodeType.RESOURCE,
                         profile_strategy=INVENTORY_PROFILE_STRATEGY,
                         provider='aws',
-                        service_name=cluster_name
+                        service_name=cluster_name,
+                        aliases=[es_address]
                     )
                     node.set_profile_timestamp()
-                    database.save_node_by_dnsname(node, address)
+                    database.save_node(node)
+                    logs.logger.info("Inventoried 1 AWS ElastiCache node: %s", node.debug_id())
 
     # pylint:disable=too-many-locals,too-many-nested-blocks
     def _inventory_load_balancers(self):
         paginator = self.elb_client.get_paginator('describe_load_balancers')
         for page in paginator.paginate():
             for lb in page['LoadBalancers']:  # pylint:disable=invalid-name
-                address = lb['DNSName']
+                lb_address = lb['DNSName']
                 name = lb['LoadBalancerName']
 
                 # find the ASG(s) the load balancer sends requests to.  There is no
@@ -195,10 +199,12 @@ class ProviderAWS(ProviderInterface):
                                     service_name=asg_name
                                 )
                                 asg_nodes[f"ASG_{asg_name}"] = asg_node
+                                database.save_node(asg_node)
+                                logs.logger.info("Inventoried 1 AWS ASG node: %s", asg_node.debug_id())
                             instance_info = self.ec2_client.describe_instances(InstanceIds=[instance_id])
                             public_ip = instance_info['Reservations'][0]['Instances'][0].get('PublicIpAddress')
                             # Create the EC2 Instance Node
-                            asg_node.children[f"ssh:{public_ip}"] = Node(
+                            ec2_node = Node(
                                 address=public_ip,
                                 node_type=NodeType.COMPUTE,
                                 profile_strategy=INVENTORY_PROFILE_STRATEGY,
@@ -206,6 +212,9 @@ class ProviderAWS(ProviderInterface):
                                 protocol_mux=tg_port,
                                 provider='ssh'
                             )
+                            database.connect_nodes(asg_node, ec2_node)
+                            database.save_node(ec2_node)
+                            logs.logger.info("Inventoried 1 AWS EC2 node: %s", ec2_node.debug_id())
 
                 # Create the ALB Node
                 lb_node = Node(
@@ -213,9 +222,11 @@ class ProviderAWS(ProviderInterface):
                     profile_strategy=INVENTORY_PROFILE_STRATEGY,
                     provider='aws',
                     service_name=name,
+                    aliases=[lb_address],
                     children=asg_nodes
                 )
-                database.save_node_by_dnsname(lb_node, address)
+                database.save_node(lb_node)
+                logs.logger.info("Inventoried 1 AWS ALB node: %s", lb_node.debug_id())
 
 
 def _die(err):

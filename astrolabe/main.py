@@ -144,6 +144,19 @@ class DiscoverCommand(Command):
         providers.cleanup_providers()
 
 
+async def _discover_network():
+    tree = _parse_seed_tree()
+    if constants.ARGS.quiet:
+        await asyncio.gather(
+            discover.discover(tree, []),
+            export_ascii.export_tree(tree, [], out=sys.stderr, print_slowly_for_humans=True)
+        )
+    else:
+        await discover.discover(tree, [])
+        await export_ascii.export_tree(tree, [], out=sys.stderr, print_slowly_for_humans=True)
+    return tree
+
+
 def _cli_command() -> Command:
     if cli_args.COMMAND_EXPORT == constants.ARGS.command:
         return ExportCommand(cli_args.export_subparser)
@@ -152,22 +165,6 @@ def _cli_command() -> Command:
     else:
         print(colored(f"Invalid command: {constants.ARGS.command}.  Please file bug with maintainer.", 'red'))
         sys.exit(1)
-
-
-async def _discover_network():
-    tree = _parse_seed_tree()
-    await _discover_and_export_to_stderr_unless_quiet_is_specified(tree)
-    return tree
-
-
-async def _discover_and_export_to_stderr_unless_quiet_is_specified(tree: Dict[str, node.Node]):
-    # pylint:disable=consider-using-with  # open will close stderr when done, bad!
-    outfile = open(os.devnull, 'w', encoding="utf-8") if constants.ARGS.quiet else sys.stderr
-    discover_tasks = [
-        discover.discover(tree, []),
-        export_ascii.export_tree(tree, [], out=outfile, print_slowly_for_humans=True)
-    ]
-    await asyncio.gather(*discover_tasks)
 
 
 def _parse_seed_tree() -> Dict[str, node.Node]:
@@ -202,3 +199,15 @@ def _export(tree: Dict[str, node.Node]) -> None:
 def _set_debug_level():
     if constants.ARGS.debug:
         logs.logger.setLevel(logging.DEBUG)
+        return
+    if hasattr(constants.ARGS, 'quiet') and not constants.ARGS.quiet:
+        logs.logger.setLevel(logging.INFO)
+
+
+# TODO LIST
+# * [ ] TODO: rewrite main.py - make it not fancy
+# * [ ] TODO: remove or improve ancestry tracking (CYCLE and MAX_DEPTH detection)
+# * [ ] TODO: tests for new database functionality
+# * [ ] TODO: functionality unit tests for e2e cases for inventory/seed/profile Node conflict/merge cases
+# * [ ] TODO: rewrite profile-strategy to ShellProfileStrategy and remove need for config files to profile?
+# * [ ] TODO: rewrite provider lookup to be a shotgun approach instead of configured?

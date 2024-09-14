@@ -16,7 +16,7 @@ import asyncio
 import sys
 import traceback
 from dataclasses import replace
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 from termcolor import colored
 
@@ -30,6 +30,16 @@ from astrolabe.node import Node
 # if we want to do more thorough/exhaustive profiling of every individual Compute node in a cluster.
 child_cache: Dict[str, Dict[str, Node]] = {}  # {'provider_ref:service_name': {node_ref, Node}}
 
+# We keep track of the "ancestors" of a node as it is profiled during the run.  This was we can check for cycles
+#  and also "max-depth" of this discovery run.  We don't used "visited" pattern for cycle detection because
+#  it is allowed for a node to be seen/visited multiple times during a run if it appears in different branches
+#  of the discovery tree - this makes sure it is only a cycle if seen in the same branch.
+#
+# Additionally - we use the id(node) (python memory address) of the node for the list hash in order to avoid
+#  cache clobbering in the event that a node with the same node.id() (provider:address) appears in discovery
+#  and for some reason isn't detected and merged into the existing node
+discovery_ancestors: Dict[int, List[str]] = {}  # {node_memory_address: List[ancestors]}
+
 
 class DiscoveryException(Exception):
     def __init__(self, message=None):
@@ -38,35 +48,52 @@ class DiscoveryException(Exception):
         self.ancestors: Optional[List[str]] = None
 
 
-stack: Dict[str, Tuple[Node, List[str]]]
-
-
+# pylint:disable=too-many-locals
 async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
-    global stack
-    stack = {f"{n.provider}:{n.address}": (n, initial_ancestors) for n in initial_tree.values()}
+    global discovery_ancestors  # pylint:disable=global-variable-not-assigned
+    # SEED DATABASE
+    for ref, node in initial_tree.items():
+        logs.logger.info("Seeding database with node: %s", node.debug_id())
+        # POPULATE ANCESTRY LIST
+        discovery_ancestors[id(node)] = initial_ancestors
+        # REBUILD TREE NODES TO MERGE W/ INVENTORY
+        saved_node = database.save_node(node)
+        initial_tree[ref] = saved_node
     coroutines = []
 
-    while len([n for n in stack.values() if not n[0].profile_complete()]) > 0:
-        sleep_secs = 0.01
-        unprofiled_stack = {key: (n, a) for key, (n, a) in stack.items()
-                            if not n.profile_complete() and not n.profile_locked()}
-        if not unprofiled_stack:
-            logs.logger.debug("Waiting for pending profiles to complete, sleeping %d", sleep_secs)
-            await asyncio.sleep(sleep_secs)
+    # PROFILE NODES
+    unlocked_logging_sleep = 0.1
+    unlocked_logging_max_sleep = 1
+    while unprofiled_nodes := database.get_nodes_unprofiled():
+        unlocked_nodes = {n_id: node for n_id, node in unprofiled_nodes.items() if not node.profile_locked()}
+        if not unlocked_nodes:
+            logs.logger.info("Waiting for %d pending profile jobs to complete, sleeping %.1f",
+                             len(unprofiled_nodes), unlocked_logging_sleep)
+            await asyncio.sleep(unlocked_logging_sleep)
+            new_sleep = unlocked_logging_sleep + .1
+            unlocked_logging_sleep = new_sleep if new_sleep < unlocked_logging_max_sleep else unlocked_logging_max_sleep
             continue
+        unlocked_logging_sleep = 0.1
 
-        logs.logger.debug("Stack of %d nodes found to profile", len(unprofiled_stack))
-        node_ref, (node, ancestors) = next(iter(unprofiled_stack.items()))
+        logs.logger.debug("Found %d nodes to profile", len(unlocked_nodes))
+        node_id, node = next(iter(unlocked_nodes.items()))
+        if id(node) in discovery_ancestors:
+            ancestors = discovery_ancestors[id(node)]
+        else:
+            ancestors = []
+            discovery_ancestors[id(node)] = ancestors
+
         depth = len(ancestors)
-        logs.logger.debug("Profiling node %s at depth: %d", node_ref, depth)
+        logs.logger.debug("Profiling node %s at depth: %d", node_id, depth)
 
         node.aquire_profile_lock()
-        coro = asyncio.create_task(_discover_node(node_ref, node, ancestors))
+        coro = asyncio.create_task(_discover_node(node_id, node, ancestors))
         coroutines.append(coro)
         await asyncio.sleep(0)  # explicitly hand off the loop
-        await asyncio.sleep(sleep_secs)  # actually give it a sec
+        await asyncio.sleep(0.1)  # actually give it a sec
 
-    # For now, we are doing a fail fast on unknown discovery exceptions.
+    logs.logger.info("All nodes profiled, moving onto exception handling")
+    # "HANDLE" EXCEPTIONS
     #  TODO: Eventually, we will be more elegant about async error handling!
     for coro in coroutines:
         try:
@@ -80,28 +107,39 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
                               exc, node.provider, node.address, child_of)
             traceback.print_tb(exc.__traceback__)
             sys.exit(1)
+    logs.logger.info("Discovery/profile complete!")
 
 
 async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
-    global stack  # pylint:disable=global-variable-not-assigned
+    global discovery_ancestors  # pylint:disable=global-variable-not-assigned
     if node.get_profile_timestamp() is not None:
-        logs.logger.info("Profile already completed for node: %s:%s (%s)",
-                         node.provider, node.address, node.service_name)
+        logs.logger.debug("Profile already completed for node: %s:%s (%s)",
+                          node.provider, node.address, node.service_name)
         return node, {}
 
     depth = len(ancestors)
     provider = providers.get_provider_by_ref(node.provider)
 
     try:
+        logs.logger.info("Profiling node: %s", node.debug_id())
         profiled_children = await _discovery_algo(node_ref, node, ancestors, provider, depth)
-        node.children = {**node.children, **profiled_children}  # merge with pre-profiled children
+        logs.logger.info("Discovered %d children for node %s (%s): %s", len(profiled_children), node.debug_id(),
+                         node.service_name, ",".join([n.debug_id() for n in profiled_children.values()]))
+        # if we have inventoried this node already, use that!
+        for ref, child in profiled_children.items():
+            inventory_node = database.get_node_by_address(child.address)
+            if inventory_node:
+                database.merge_node(inventory_node, child)
+                profiled_children[ref] = inventory_node
+            database.connect_nodes(node, profiled_children[ref])
 
         # ONLY ITERATE OVER CHILDREN W/ ADDRESS
         #  TODO: Better error handling for children discovered, for some reason?, without address...
         children_with_address = [child for child in node.children.values() if child.address]
 
         for child in children_with_address:
-            stack[f"{child.provider}:{child.address}"] = (child, ancestors + [node.service_name])
+            discovery_ancestors[id(child)] = ancestors + [node.service_name]
+            database.save_node(child)
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
         logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy.name}, 'yellow')
@@ -248,11 +286,6 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
                                   node_transport.protocol_mux)
                 continue
             child_ref, child = database.create_node(prof_strategy, node_transport)
-            # if we have inventoried this node already, use that!
-            inventory_node = database.get_node_by_address(child.address)
-            if inventory_node:
-                database.merge_node(inventory_node, child)
-                child = inventory_node
             children[child_ref] = child
 
     logs.logger.debug("Profiled %d non-excluded children from %d profile results for %s",

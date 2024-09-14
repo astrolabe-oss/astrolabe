@@ -109,10 +109,9 @@ class ProviderKubernetes(ProviderInterface):
                                                                     container=container.name, command=exec_command,
                                                                     stderr=True, stdin=False, stdout=True, tty=False)
             ip_addrs = ret.strip().split('\n') if ret else None
+            logs.logger.info("Found ipaddrs: [%s] for hostname %s on host %s", ",".join(ip_addrs), hostname, address)
             for ip_addr in ip_addrs:
                 if ip_addr and database.get_node_by_address(ip_addr) is None:
-                    logs.logger.debug("Discovered IP %s for hostname %s: from address %s",
-                                      ip_addr, hostname, address)
                     # TODO: we are glossing over the fact that there can multiple addresses per
                     #  node for DNS records here!  Solve that problem later!
                     node.address = ip_addr
@@ -235,10 +234,13 @@ class ProviderKubernetes(ProviderInterface):
                     profile_strategy=INVENTORY_PROFILE_STRATEGY,
                     provider='k8s',
                     service_name=lb_name,
-                    children={f"K8S_{k8s_service_address}": k8s_service_node}
+                    aliases=[lb_address]
                 )
                 database.save_node(k8s_service_node)
-                database.save_node_by_dnsname(lb_node, lb_address)
+                database.save_node(lb_node)
+                database.connect_nodes(lb_node, k8s_service_node)
+                logs.logger.info("Inventoried 1 k8s service node: %s", k8s_service_node.debug_id())
+                logs.logger.info("Inventoried 1 k8s load balancer node: %s", lb_node.debug_id())
 
 
 def _parse_label_selector(service_name: str) -> str:

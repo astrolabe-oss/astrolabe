@@ -2,6 +2,34 @@ import pytest
 
 
 class TestNode:
+    # id()
+    @pytest.mark.parametrize('address, aliases, expct', [
+        ('ADDY', [], 'ADDY'),
+        (None, ['DNSNAME'], 'DNSNAME'),
+        (None, [], 'UNKNOWN')
+    ])
+    def test_debug_id(self, node_fixture, address, aliases, expct):
+        """This is what the node.id() format should be"""
+        # arrange
+        provider = 'PROV'
+        node_fixture.provider = provider
+        node_fixture.address = address
+        node_fixture.aliases = aliases
+
+        # arrange/act/assert
+        assert node_fixture.debug_id() == provider + ':' + expct
+
+    def test_debug_id_case_shorten(self, node_fixture):
+        """This is what the node.id() format should be"""
+        # arrange
+        provider = 'PROV'
+        address = 'AREALLYREALLYREALLYREALLYREALLYREALLYREALLYREALLYREALLYREALLYLONGADDRESSLONGERTHANEIGHTYCHARS'
+        node_fixture.provider = provider
+        node_fixture.address = address
+
+        # arrange/act/assert
+        assert node_fixture.debug_id() == (provider + ':' + address)[:60] + "..."
+
     # is_database()
     @pytest.mark.parametrize('port', ['3306', '5432', '9160'])
     def test_is_database_case_database_ports(self, node_fixture, port, mocker):

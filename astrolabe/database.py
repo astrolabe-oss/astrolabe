@@ -8,17 +8,57 @@ from astrolabe.profile_strategy import ProfileStrategy
 _node_index_by_address: Dict[str, Node] = {}  # {address: Node()}
 _node_index_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
 
+# we are storing nodes with the unique id as provider:address for now.  This is a decent proxy for a unique ID
+#  escept that sometimes during inventory  we find nodes without an address (just DNS names).  So... kick this can down
+#  the road.
+_node_primary_index: Dict[str, Node] = {}  # {node_id: Node()}
 
-def save_node(node: Node):
-    if not node.address:
-        raise Exception("Node has no address, cannot save!")  # pylint:disable=broad-exception-raised
+
+def get_nodes_unprofiled() -> Dict[str, Node]:
+    return {
+        n_id: node
+        for n_id, node in _node_primary_index.items()
+        if not node.profile_complete()
+        and node.address is not None
+    }
+
+
+def save_node(node: Node) -> Node:
+    if not node.address and len(node.aliases) < 1:
+        raise Exception(f"Node must have address or aliases to save!: {node}")  # pylint:disable=broad-exception-raised
+
+    # DNSNAME INDEX
+    ret_node = node
+    if len(node.aliases) > 0:
+        for alias in node.aliases:
+            _node_index_by_dnsname[alias] = node
 
     if node.address:
-        _node_index_by_address[node.address] = node
+        # ADDRESS INDEX
+        if node.address in _node_index_by_address:
+            index_node = _node_index_by_address[node.address]
+            merge_node(index_node, node)
+            ret_node = index_node
+        else:
+            _node_index_by_address[node.address] = node
+
+        # PRIMARY KEY INDEX
+        primary_key = f"{node.provider}:{node.address}"
+        if primary_key in _node_primary_index:
+            db_node = _node_primary_index[primary_key]
+            merge_node(db_node, node)
+            ret_node = db_node
+        else:
+            _node_primary_index[primary_key] = node
+
+    return ret_node
 
 
-def save_node_by_dnsname(node: Node, dns_name: str):
-    _node_index_by_dnsname[dns_name] = node
+def connect_nodes(node1: Node, node2: Node):
+    """This is just fooey.  When we have a real database it will be saved to the database.  For now, in memory the
+         connection is made without having to do a lookup on any of our indices"""
+    key = f"{node2.provider}:{node2.address}"
+    node1.children[key] = node2
 
 
 def get_node_by_address(address: str) -> Optional[Node]:
@@ -28,15 +68,8 @@ def get_node_by_address(address: str) -> Optional[Node]:
     return _node_index_by_address[address]
 
 
-def get_node_by_dnsname(dns_name: str) -> Optional[Node]:
-    if dns_name not in _node_index_by_dnsname:
-        return None
-
-    return _node_index_by_dnsname[dns_name]
-
-
 def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
-    return _node_index_by_dnsname.items()
+    return {hostname: node for hostname, node in _node_index_by_dnsname.items() if node.address is None}.items()
 
 
 def node_is_k8s_load_balancer(address: str) -> bool:
