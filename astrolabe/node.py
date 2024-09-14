@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 from enum import Enum
 from typing import Dict, Optional, List
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, is_dataclass, fields
 from datetime import datetime
 import json
 
@@ -132,3 +132,20 @@ class Node:  # pylint:disable=too-many-instance-attributes
 
     def profile_locked(self) -> bool:
         return self._profile_lock_time is not None
+
+
+def merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
+    if not is_dataclass(copyto_node) or not is_dataclass(copyfrom_node):
+        raise ValueError("Both copyto_node and copyfrom_node must be dataclass instances")
+
+    for fld in fields(Node):
+        attr_name = fld.name
+        inventory_preferred_attrs = ['provider', 'node_type']
+        if attr_name in inventory_preferred_attrs:
+            continue
+
+        copyfrom_value = getattr(copyfrom_node, attr_name)
+
+        # Only copy if the source value is not None, empty string, empty dict, or empty list
+        if copyfrom_value is not None and copyfrom_value != "" and copyfrom_value != {} and copyfrom_value != []:
+            setattr(copyto_node, attr_name, copyfrom_value)

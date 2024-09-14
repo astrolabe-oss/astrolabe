@@ -1,7 +1,6 @@
-from dataclasses import is_dataclass, fields
 from typing import Dict, Optional
 
-from astrolabe.node import Node, NodeType
+from astrolabe.node import Node, NodeType, merge_node
 
 _node_index_by_address: Dict[str, Node] = {}  # {address: Node()}
 _node_index_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
@@ -86,20 +85,3 @@ def node_is_k8s_service(address: str) -> bool:
 
     node = _node_index_by_address[address]
     return node.provider == 'k8s' and node.node_type == NodeType.DEPLOYMENT
-
-
-def merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
-    if not is_dataclass(copyto_node) or not is_dataclass(copyfrom_node):
-        raise ValueError("Both copyto_node and copyfrom_node must be dataclass instances")
-
-    for field in fields(Node):
-        attr_name = field.name
-        inventory_preferred_attrs = ['provider', 'node_type']
-        if attr_name in inventory_preferred_attrs:
-            continue
-
-        copyfrom_value = getattr(copyfrom_node, attr_name)
-
-        # Only copy if the source value is not None, empty string, empty dict, or empty list
-        if copyfrom_value is not None and copyfrom_value != "" and copyfrom_value != {} and copyfrom_value != []:
-            setattr(copyto_node, attr_name, copyfrom_value)

@@ -23,7 +23,7 @@ from termcolor import colored
 from astrolabe import database, profile_strategy, network, constants, logs, obfuscate, providers
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.providers import ProviderInterface
-from astrolabe.node import Node, NodeTransport
+from astrolabe.node import Node, NodeTransport, merge_node
 
 # An internal cache which prevents astrolabe from re-profiling a Compute node of the same Application
 # that has already been profiled on a different address. We may not want this "feature" going forward
@@ -129,7 +129,7 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         for ref, child in profiled_children.items():
             inventory_node = database.get_node_by_address(child.address)
             if inventory_node:
-                database.merge_node(inventory_node, child)
+                merge_node(inventory_node, child)
                 profiled_children[ref] = inventory_node
             database.connect_nodes(node, profiled_children[ref])
 
