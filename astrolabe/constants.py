@@ -15,7 +15,6 @@ import pprint
 
 # independent constants
 ARGS = None
-ASTROLABE_DIR = 'astrolabe.d'
 OUTPUTS_DIR = 'outputs'
 PROVIDER_SSH = 'ssh'
 PROVIDER_HINT = 'hnt'

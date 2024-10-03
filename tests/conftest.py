@@ -1,5 +1,5 @@
 import asyncio
-import os
+from pathlib import Path
 from dataclasses import replace
 from typing import Dict, List
 
@@ -96,15 +96,27 @@ def tree_named(tree):
 
 
 @pytest.fixture()
-def astrolabe_d(tmp_path, mocker) -> str:
+def astrolabe_d(tmp_path, mocker) -> Path:
     """Return temp profile_strategy dir {str}, also making tmp dir on the filesystem and patching globals.ASTROLABE_DIR
     autouse=True so that this is mocked out for all module tests
     """
-    astrolabe_d = os.path.join(tmp_path, 'astrolabe.d')
-    os.mkdir(astrolabe_d)
-    mocker.patch('astrolabe.profile_strategy.constants.ASTROLABE_DIR', astrolabe_d)
+    astrolabe_d = tmp_path / 'astrolabe.d'
+    astrolabe_d.mkdir()
+    mocker.patch('astrolabe.profile_strategy.config.ASTROLABE_DIR', astrolabe_d)
 
     return astrolabe_d
+
+
+@pytest.fixture()
+def core_astrolabe_d(tmp_path, mocker) -> Path:
+    """Return temp profile_strategy dir {str}, also making tmp dir on the filesystem and patching globals.ASTROLABE_DIR
+    autouse=True so that this is mocked out for all module tests
+    """
+    core_astrolabe_d = tmp_path / 'core' / 'astrolabe.d'
+    core_astrolabe_d.mkdir(parents=True)
+    mocker.patch('astrolabe.profile_strategy.config.CORE_ASTROLABE_DIR', core_astrolabe_d)
+
+    return core_astrolabe_d
 
 
 @pytest.fixture

@@ -13,14 +13,13 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import typing
-import os
 import re
 from dataclasses import dataclass, asdict
 from string import Template
 from typing import List, Optional
 from yaml import safe_load_all
 
-from astrolabe import network, constants, logs
+from astrolabe import config, constants, logs, network
 
 
 class ProfileStrategyException(Exception):
@@ -143,23 +142,22 @@ def init():
 
 
 def _load_profile_strategies():
-    for file in os.listdir(constants.ASTROLABE_DIR):
-        if file.endswith('.yaml'):
-            with open(os.path.join(constants.ASTROLABE_DIR, file), 'r', encoding='utf-8') as stream:
-                dcts = safe_load_all(stream)
-                for dct in dcts:
-                    if 'ProfileStrategy' == dct.get('type'):
-                        protocol = network.get_protocol(dct['protocol'])
-                        pfs = ProfileStrategy(
-                            dct['description'],
-                            dct['name'],
-                            protocol,
-                            dct['providers'],
-                            dct['providerArgs'],
-                            dct['childProvider'],
-                            dct['serviceNameFilter'] if 'serviceNameFilter' in dct else {},
-                            dct['serviceNameRewrites'] if 'serviceNameRewrites' in dct else {}
-                        )
-                        profile_strategies.append(pfs)
-                        logs.logger.debug('Loaded ProfileStrategy:')
-                        logs.logger.debug(pfs)
+    for file in config.get_config_yaml_files():
+        with open(file, 'r', encoding='utf-8') as stream:
+            dcts = safe_load_all(stream)
+            for dct in dcts:
+                if 'ProfileStrategy' == dct.get('type'):
+                    protocol = network.get_protocol(dct['protocol'])
+                    pfs = ProfileStrategy(
+                        dct['description'],
+                        dct['name'],
+                        protocol,
+                        dct['providers'],
+                        dct['providerArgs'],
+                        dct['childProvider'],
+                        dct['serviceNameFilter'] if 'serviceNameFilter' in dct else {},
+                        dct['serviceNameRewrites'] if 'serviceNameRewrites' in dct else {}
+                    )
+                    profile_strategies.append(pfs)
+                    logs.logger.debug('Loaded ProfileStrategy:')
+                    logs.logger.debug(pfs)

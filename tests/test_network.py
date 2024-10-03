@@ -11,7 +11,34 @@ def _write_stub_web_yaml(astrolabe_d: str, contents: str) -> None:
         open_file.write(contents)
 
 
-def test_spin_up_case_malformed_web_yaml(astrolabe_d):
+def test_init_case_success(astrolabe_d, core_astrolabe_d):
+    """Network files are initialized from both astrolabe.d directories"""
+    # arrange
+    fake_protocol_web_yaml = """
+---
+protocols:
+  FOO:
+    name: "FOO"
+    blocking: true
+"""
+    _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
+    fake_protocol_web_yaml = """
+---
+protocols:
+  BAR:
+    name: "BAR"
+    blocking: true
+"""
+    _write_stub_web_yaml(core_astrolabe_d, fake_protocol_web_yaml)
+
+    # act
+    network.init()
+
+    assert network.get_protocol("FOO")
+    assert network.get_protocol("BAR")
+
+
+def test_init_case_malformed_web_yaml(astrolabe_d):
     """Malformed yaml is caught in initializing network"""
     # arrange
     fake_protocol_web_yaml = """
@@ -29,7 +56,7 @@ def test_spin_up_case_malformed_web_yaml(astrolabe_d):
     assert 'Unable to load' in str(e_info)
 
 
-def test_spin_up_case_malformed_protocol(astrolabe_d):
+def test_init_case_malformed_protocol(astrolabe_d):
     """Well-formed yaml, malformed protocol schema is caught"""
     # arrange
     fake_protocol_web_yaml = """
@@ -48,8 +75,8 @@ protocols:
     assert 'protocols malformed' in str(e_info)
 
 
-def test_spin_up_case_no_protocols(astrolabe_d):
-    """No user defined protocols is caught"""
+def test_init_case_default_tcp_protocol(astrolabe_d):
+    """No user defined protocols still result in TCP protocol defined"""
     # arrange
     fake_protocol_web_yaml = """
 ---
@@ -58,18 +85,17 @@ foo: bar
     _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
 
     # act
-    with pytest.raises(SystemExit) as e_info:
-        network.init()
+    network.init()
 
     # assert
-    assert e_info.type == SystemExit
+    assert network.get_protocol("TCP")
 
 
 @pytest.mark.parametrize('protocol_ref,blocking,is_database', [('FOO', True, True), ('BAR', True, False),
                                                                ('BAZ', False, False)])
 def test_get_protocol(astrolabe_d, protocol_ref, blocking, is_database):
     """We are able get a parsed protocol from profile_strategy which was loaded from disk"""
-    # Technically an integration test that tests the interaction of spin_up() and get_protocol()
+    # Technically an integration test that tests the interaction of init() and get_protocol()
     # arrange
     fake_protocol_web_yaml = f"""
 ---
@@ -104,7 +130,7 @@ protocols:
 ])
 def test_skip_address(astrolabe_d, mocker, test, should_skip):
     """We are able to correctly match a address skip loaded from disk"""
-    # Technically an integration test that tests the interaction of spin_up() and skip_service_name()
+    # Technically an integration test that tests the interaction of init() and skip_service_name()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
     hint_web_yaml = """
@@ -140,7 +166,7 @@ def test_skip_address_ignored_cidr():
 ])
 def test_skip_service_name(astrolabe_d, mocker, test, should_skip):
     """We are able to correctly match a service_name skip loaded from disk"""
-    # Technically an integration test that tests the interaction of spin_up() and skip_service_name()
+    # Technically an integration test that tests the interaction of init() and skip_service_name()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
     hint_web_yaml = """
@@ -171,7 +197,7 @@ skips:
 ])
 def test_skip_protocol_mux(astrolabe_d, mocker, test, should_skip):
     """We are able to correctly match a protocol_mux skip loaded from disk"""
-    # Technically an integration test that tests the interaction of spin_up() and skip_protocol_mux()
+    # Technically an integration test that tests the interaction of init() and skip_protocol_mux()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
     hint_web_yaml = """
@@ -198,7 +224,7 @@ def test_skip_protocol_mux_cli_arg(cli_args_mock):
 
 def test_hints(astrolabe_d, mocker):
     """We are able to correctly get hints that were parsed from disk"""
-    # Technically an integration test that tests the interaction of spin_up() and hints()
+    # Technically an integration test that tests the interaction of init() and hints()
     # arrange
     upstream, downstream, protocol, protocol_dummy, mux, provider, instance_provider = \
         ('foo-service', 'bar-service', 'BAZ', 'baz-dummy', 'buz', 'qux', 'quux')

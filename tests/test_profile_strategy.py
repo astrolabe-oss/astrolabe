@@ -123,7 +123,7 @@ class TestProfileStrategy:
 
 
 # init()
-def test_init_case_inits_network(astrolabe_d, mocker):  # pylint:disable=unused-argument
+def test_init_case_inits_network(astrolabe_d, core_astrolabe_d, mocker):  # pylint:disable=unused-argument
     """Charlotte.init() spins up network"""
     # `astrolabe_d` referenced in test signature only for patching of the tmp dir - fixture unused in test function
     # arrange
@@ -136,8 +136,8 @@ def test_init_case_inits_network(astrolabe_d, mocker):  # pylint:disable=unused-
     init_func.assert_called()
 
 
-# pylint:disable=too-many-locals
-def test_init_case_wellformed_discoverstrategy_yaml(astrolabe_d, cli_args_mock, mocker):
+# pylint:disable=too-many-locals,unused-argument
+def test_init_case_wellformed_discoverstrategy_yaml(astrolabe_d, core_astrolabe_d, cli_args_mock, mocker):
     """Charlotte loads a well formed profile_strategy from yaml into memory"""
     # `astrolabe_d` referenced in test signature only for patching of the tmp dir - fixture unused in test function
     # arrange

@@ -1,0 +1,8 @@
+protocols:
+  TCP:
+    name: "TCP"
+    blocking: true
+#skips:
+#  protocol_muxes:
+#  service_names:
+#hints:

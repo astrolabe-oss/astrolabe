@@ -1,0 +1,78 @@
+---
+type: "ProfileStrategy"
+description: "Discover TCP connections by reading /proc/net/tcp filesystem"
+name: "Notstat"
+providers: ["ssh", "k8s"]
+protocol: "TCP"
+providerArgs:
+    shell_command: |
+        # pre-requisties
+        # if netstat is installed - let the Netstat profile strategy handle profiling because notstat is SLOW!
+        which netstat >/dev/null && exit
+
+        notstat() {
+            iterations=${1:-10}  # Number of iterations to sample, default to 10 if not provided
+
+            echo "Proto Recv-Q Send-Q Local_Address Foreign_Address State"
+
+            for ((i=0; i<iterations; i++)); do
+                cat /proc/net/tcp | awk 'NR>1 { print $2, $3, $4, $5, $6 }' | while read local rem state tx_rx queues; do
+                    local_ip_hex=$(echo $local | cut -d: -f1)
+                    local_port_hex=$(echo $local | cut -d: -f2)
+                    rem_ip_hex=$(echo $rem | cut -d: -f1)
+                    rem_port_hex=$(echo $rem | cut -d: -f2)
+
+                    # Convert hex IP to decimal IP
+                    local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$local_ip_hex" | cut -c7-8)" 0x"$(echo "$local_ip_hex" | cut -c5-6)" 0x"$(echo "$local_ip_hex" | cut -c3-4)" 0x"$(echo "$local_ip_hex" | cut -c1-2)")
+                    rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$rem_ip_hex" | cut -c7-8)" 0x"$(echo "$rem_ip_hex" | cut -c5-6)" 0x"$(echo "$rem_ip_hex" | cut -c3-4)" 0x"$(echo "$rem_ip_hex" | cut -c1-2)")
+
+                    # Convert hex port to decimal port
+                    local_port_dec=$(printf "%d\n" 0x$local_port_hex)
+                    rem_port_dec=$(printf "%d\n" 0x$rem_port_hex)
+
+                    # Split tx_queue and rx_queue
+                    tx_queue=$(echo "$tx_rx" | awk -F: '{print $1}')
+                    rx_queue=$(echo "$tx_rx" | awk -F: '{print $2}')
+
+                    # Convert hex queues to decimal
+                    tx_queue_dec=$(printf "%d\n" 0x$tx_queue)
+                    rx_queue_dec=$(printf "%d\n" 0x$rx_queue)
+
+                    # Decode the connection state
+                    case "$state" in
+                        "01") state_dec="EST" ;;
+                        "0A") state_dec="LISTEN" ;;
+                        *) state_dec="OTHER" ;;
+                    esac
+
+                    echo "tcp $rx_queue_dec $tx_queue_dec $local_ip_dec:$local_port_dec $rem_ip_dec:$rem_port_dec $state_dec"
+                done
+                sleep 0.1
+            done
+        }
+        
+        # determine listening ports on this instance
+        listening_ports=$(notstat | grep LISTEN | awk '{print $4}' | awk -F: '{print $NF}' | grep '[0-9]' | sort | uniq | paste -sd "|" -)
+
+        # get connections on ports we are interested in
+        notstat | sort -u | awk '$5 ~ /:(3306|9042|9160|11211|5432|6379|80)$/ {print}' |
+
+        # filter TCP responses - we only want originating requests this filters out HTTP server response to
+        # clients on ephemeral ports which happen to be in our list of ports of interest
+        awk '$4 !~ /:('"$listening_ports"')$/ {print $5}' |
+
+        # exclude if self is the dest
+        grep -v $(hostname -i) |
+
+        # only take 1 server per port
+        tr ':' ' ' | sort -k2 | uniq | awk 'BEGIN{print "mux address"};$1$2!=uniqid{print $2,$1;uniqie=$1$2}'
+childProvider:
+    type: "matchPort"
+    matches:
+        5432: "aws"
+        6379: "aws"
+        80: "k8s"
+    default: "aws"
+rendererArgs:
+    promviz:
+
