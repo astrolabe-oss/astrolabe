@@ -87,6 +87,7 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
         logs.logger.debug("Profiling node %s at depth: %d", node_id, depth)
 
         node.aquire_profile_lock()
+        database.save_node(node)  # save_node() is only to persist lock to Neo4j
         coro = asyncio.create_task(_discover_node(node_id, node, ancestors))
         coroutines.append(coro)
         await asyncio.sleep(0)  # explicitly hand off the loop
@@ -128,18 +129,15 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         # if we have inventoried this node already, use that!
         for ref, child in profiled_children.items():
             inventory_node = database.get_node_by_address(child.address)
+
             if inventory_node:
                 merge_node(inventory_node, child)
                 profiled_children[ref] = inventory_node
-            database.connect_nodes(node, profiled_children[ref])
+            else:
+                database.save_node(child)
 
-        # ONLY ITERATE OVER CHILDREN W/ ADDRESS
-        #  TODO: Better error handling for children discovered, for some reason?, without address...
-        children_with_address = [child for child in node.children.values() if child.address]
-
-        for child in children_with_address:
             discovery_ancestors[id(child)] = ancestors + [node.service_name]
-            database.save_node(child)
+            database.connect_nodes(node, profiled_children[ref])
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
         logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy_name}, 'yellow')

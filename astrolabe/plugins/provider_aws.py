@@ -219,8 +219,8 @@ class ProviderAWS(ProviderInterface):
                                 protocol_mux=tg_port,
                                 provider='ssh'
                             )
-                            database.connect_nodes(asg_node, ec2_node)
                             database.save_node(ec2_node)
+                            database.connect_nodes(asg_node, ec2_node)
                             logs.logger.info("Inventoried 1 AWS EC2 node: %s", ec2_node.debug_id())
 
                 # Create the ALB Node
