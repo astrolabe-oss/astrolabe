@@ -179,6 +179,7 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
 
     # LOOKUP SERVICE NAME
     await asyncio.wait_for(_lookup_service_name(node, provider, conn), constants.ARGS.timeout)
+    database.save_node(node)  # This persists the "service name" (Application)
 
     # SKIP SERVICE NAME
     if node.service_name and network.skip_service_name(node.service_name):
