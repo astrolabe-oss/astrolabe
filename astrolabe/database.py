@@ -3,7 +3,7 @@ import os
 from typing import Dict, Optional
 
 from astrolabe.node import Node, NodeType, merge_node
-from astrolabe import logs
+from astrolabe import network, logs, profile_strategy, providers
 
 from corelib import platdb
 
@@ -23,7 +23,41 @@ _node_index_by_dnsname: Dict[str, Node] = {}  # {dns_name: Node()}
 _node_primary_index: Dict[str, Node] = {}  # {node_id: Node()}
 
 
+def neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
+    class_to_node = {
+        platdb.Compute: NodeType.COMPUTE,     
+        platdb.Deployment: NodeType.DEPLOYMENT,
+        platdb.Resource: NodeType.RESOURCE,
+        platdb.TrafficController: NodeType.TRAFFIC_CONTROLLER
+    }
+
+    # TODO if platdb_node is Compute then fill service_name with child App
+    # Apps might be able to be ignored because they are kinda virtual
+
+    node = Node(
+        profile_strategy_name=platdb_node.profile_strategy_name,
+        protocol=network._protocols.get(platdb_node.protocol),
+        protocol_mux=platdb_node.protocol_multiplexor,
+        provider=platdb_node.provider,
+        containerized=False,  # I don't know what else to put here
+        from_hint=False,  # No hints in the sandbox for now
+        address=platdb_node.address,
+        service_name=platdb_node.name,
+        _profile_timestamp=platdb_node.profile_timestamp,
+        _profile_lock_time=platdb_node.profile_lock_time,
+        node_type=class_to_node[platdb_node.__class__]
+    )
+
+    if hasattr(platdb_node, 'dns_names'):
+        node.aliases = platdb_node.dns_names
+
+    return node
+
+
 def get_nodes_unprofiled() -> Dict[str, Node]:
+    return _new_get_nodes_unprofiled()
+
+def _old_get_nodes_unprofiled_() -> Dict[str, Node]:
     return {
         n_id: node
         for n_id, node in _node_primary_index.items()
@@ -31,9 +65,24 @@ def get_nodes_unprofiled() -> Dict[str, Node]:
         and node.address is not None
     }
 
+def _new_get_nodes_unprofiled() -> dict[str, Node]:
+    node_class = [platdb.Compute, platdb.Deployment, platdb.Resource, platdb.TrafficController]
+    results = {}
+
+    for cls in node_class:
+        nodes = cls.nodes.filter(
+            platdb.Q(profile_timestamp__isnull=True) & platdb.Q(address__isnull=False)
+        )
+
+        for n in nodes:
+            results[n.element_id_property] = neomodel_to_node(n)
+
+    return results
+
 
 def save_node(node: Node) -> Node:
-    new_save_node(node)
+    obj = new_save_node(node)
+    return neomodel_to_node(obj)
 
     return _old_save_node(node)
 
@@ -69,7 +118,7 @@ def _old_save_node(node: Node) -> Node:
     return ret_node
 
 
-def new_save_node(node: Node):
+def new_save_node(node: Node) -> platdb.PlatDBNode:
     # TODO should protocol be required?
     # TODO Is each node going to have to have it's own req'd attributes?
     protocol = None
@@ -80,10 +129,12 @@ def new_save_node(node: Node):
     props = {
         'name': node.service_name,
         'address': node.address,
+        'profile_strategy_name': node.profile_strategy_name,
         'protocol': protocol,
         'protocol_multiplexor': node.protocol_mux,
         'profile_timestamp': node._profile_timestamp,
-        'profile_lock_time': node._profile_lock_time
+        'profile_lock_time': node._profile_lock_time,
+        'provider': node.provider
     }
 
     if node.node_type in [NodeType.COMPUTE, NodeType.NULL]:
@@ -121,7 +172,7 @@ def _merge_deployment(node: Node, props: dict) -> platdb.PlatDBNode:
 
 def _merge_resource(node: Node, props: dict) -> platdb.PlatDBNode:
     props['dns_names'] = node.aliases
-    resource = platdb.Resource.create_or_update(props)
+    resource = platdb.Resource.create_or_update(props)[0]
 
     return resource
 
@@ -135,7 +186,7 @@ def _merge_traffic_controller(node: Node, props: dict) -> platdb.PlatDBNode:
 
 def connect_nodes(node1: Node, node2: Node):
     _new_connect_nodes(node1, node2)
-    _old_connect_nodes(node1, node2)
+    #_old_connect_nodes(node1, node2)
 
 
 def _old_connect_nodes(node1: Node, node2: Node):
@@ -237,19 +288,87 @@ def _connect_traffic_controller(parent: platdb.TrafficController, child: platdb.
     
 
 def get_node_by_address(address: str) -> Optional[Node]:
+    return _new_get_node_by_address(address)
+
+def _old_get_node_by_address(address: str) -> Optional[Node]:
     if address not in _node_index_by_address:
         return None
 
     return _node_index_by_address[address]
 
+def _new_get_node_by_address(address: str) -> Optional[Node]:
+    query = """
+    MATCH (n)
+    WHERE n.address = $address
+    RETURN n
+    """
+    results, _ = platdb.db.cypher_query(query, {"address": address})
+
+    if len(results) == 0 or len(results[0]) == 0:
+        #raise Exception(f"Results is empty for address {address}")
+        return None
+
+    if len(results) > 1 or len(results[0]) > 1:
+        raise Exception(f"To many things were returned from get_node_by_address for address {address} Results: {results}")
+
+    cls: str = list(results[0][0].labels)[0]
+    neomodel_node = results[0][0]
+
+    neomodel_classes = {
+        "Compute": platdb.Compute,     
+        "Deployment": platdb.Deployment,
+        "Resource": platdb.Resource,
+        "TrafficController": platdb.TrafficController
+    }
+
+    obj = neomodel_classes[cls].inflate(neomodel_node)
+
+    return neomodel_to_node(obj)
+
 
 def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
+    return _new_get_nodes_pending_dnslookup().items()
+
+def _old_get_nodes_pending_dnslookup() -> [str, Node]:
     # TODO Lookup all nodes that have alias field populated (aliases are the DNS names)
     # Populate the addresses in the Resources
     return {hostname: node for hostname, node in _node_index_by_dnsname.items() if node.address is None}.items()
 
+def _new_get_nodes_pending_dnslookup() -> dict[str, Node]:
+    # Give all the nodes that have ANY dns name AKA alias and don't have address field
+    query = """
+    MATCH (n)
+    WHERE n.dns_names IS NOT NULL AND NOT n.address IS NULL
+    RETURN n
+    """
+    results, _ = platdb.db.cypher_query(query)
+    neomodel_classes = {
+        "Compute": platdb.Compute,     
+        "Deployment": platdb.Deployment,
+        "Resource": platdb.Resource,
+        "TrafficController": platdb.TrafficController
+    }
+
+    ht = {}
+
+    for result in results:
+        if len(result) > 1: 
+            raise Exception(f'Cannot explain why result in get_nodes_pending_dnslookup has more than 1 element: {result}')
+
+        cls: str = list(result[0].labels)[0]
+        dns_name = result[0]._properties['dns_names'][0]
+        neomodel_node = result[0]
+        obj = neomodel_classes[cls].inflate(neomodel_node)
+        node = neomodel_to_node(obj)
+
+        ht[dns_name] = node
+
+    return ht
 
 def node_is_k8s_load_balancer(address: str) -> bool:
+    return _new_node_is_k8s_load_balancer(address)
+
+def _old_node_is_k8s_load_balancer(address: str) -> bool:
     if address not in _node_index_by_address:
         return False
 
@@ -258,10 +377,32 @@ def node_is_k8s_load_balancer(address: str) -> bool:
                if node.provider == 'k8s' and node.node_type == NodeType.TRAFFIC_CONTROLLER]
     return service_name in k8s_lbs
 
+def _new_node_is_k8s_load_balancer(address: str):
+    traffic_controllers = platdb.TrafficController.nodes.filter(address=address, provider="k8s")
+
+    if len(traffic_controllers) == 1:
+        return True
+    elif len(traffic_controllers) > 1:
+        raise Exception(f"Multiple traffic controllers with address {address} in node is k8s load balancer")
+    else:
+        return False
 
 def node_is_k8s_service(address: str) -> bool:
+    return _new_node_is_k8s_service(address)
+
+def _old_node_is_k8s_service(address: str) -> bool:
     if address not in _node_index_by_address:
         return False
 
     node = _node_index_by_address[address]
     return node.provider == 'k8s' and node.node_type == NodeType.DEPLOYMENT
+
+def _new_node_is_k8s_service(address: str) -> bool:
+    deployments = platdb.Deployment.nodes.filter(address=address, provider="k8s")
+
+    if len(deployments) == 1:
+        return True
+    elif len(deployments) > 1:
+        raise Exception(f"Multiple traffic controllers with address {address} in node is k8s load balancer")
+    else:
+        return False

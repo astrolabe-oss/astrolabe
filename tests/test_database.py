@@ -67,3 +67,37 @@ def test_node_to_neomodel(request, node_fixture, node_type):
     obj = database._node_to_neomodel(node)
 
     assert isinstance(obj, node_type)
+
+def test_neomodel_to_node():
+    attrs = {
+        "name": "new_compute1",
+        "platform": "k8s",
+        "address": "pod-1234nv",
+        "protocol": "HTTP",
+        "protocol_multiplexor": "80"
+    }
+
+    mock_compute = platdb.Compute(**attrs)
+
+    node = database.neomodel_to_node(mock_compute)
+
+    print(node)
+
+
+def test_new_get_node_by_address():
+    node = database._new_get_node_by_address("52.4.186.106")
+
+    print(node)
+
+def test_new_get_nodes_pending_dnslookup():
+    results = database.get_nodes_pending_dnslookup()
+
+def test_node_is_k8s_load_balancer():
+    results = database._new_node_is_k8s_load_balancer("50.19.90.170")
+
+def test_new_get_nodes_unprofiled():
+    results = database.get_nodes_unprofiled()
+
+    print(results)
+
+    
