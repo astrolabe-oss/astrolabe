@@ -25,9 +25,9 @@ from kubernetes_asyncio.client.rest import ApiException
 from termcolor import colored
 
 from astrolabe import database, constants, logs
-from astrolabe.network import Hint
+from astrolabe.network import Hint, get_protocol, PROTOCOL_TCP
 from astrolabe.node import NodeTransport, NodeType, Node
-from astrolabe.profile_strategy import ProfileStrategy, INVENTORY_PROFILE_STRATEGY
+from astrolabe.profile_strategy import ProfileStrategy, INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY
 from astrolabe.providers import ProviderInterface, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
 
@@ -117,7 +117,7 @@ class ProviderKubernetes(ProviderInterface):
                     node.address = ip_addr
                     database.save_node(node)
 
-    async def profile(self, address: str, pfs: ProfileStrategy, _: Optional[type]) -> List[NodeTransport]:
+    async def profile(self, address: str, pfss: List[ProfileStrategy], _: Optional[type]) -> List[NodeTransport]:
         # profile k8s service load balancer
         if database.node_is_k8s_load_balancer(address):
             # k8s lbs are pre-profiled during inventory
@@ -132,9 +132,10 @@ class ProviderKubernetes(ProviderInterface):
 
         # profile pod
         logs.logger.debug("Profiling address %s as k8s pod", address)
-        return await self._profile_pod(address, pfs)
+        return await self._profile_pod(address, pfss)
 
     async def _profile_k8s_service(self, address: str) -> List[NodeTransport]:
+        # k8s_service_pfs = profile_strategy.
         try:
             service = await self.api.read_namespaced_service(address, namespace="default")
             selector = service.spec.selector
@@ -146,32 +147,43 @@ class ProviderKubernetes(ProviderInterface):
 
             node_transports = []
             for pod in pods.items:
-                ret = "address mux\n"
-                ret += f"{pod.metadata.name} {service.spec.ports[0].target_port}\n"
-                node_transports.extend(parse_profile_strategy_response(ret, address, '_profile_k8s_service'))
+                node_transport = NodeTransport(
+                    address=pod.metadata.name,
+                    protocol=get_protocol('TCP'),
+                    protocol_mux=service.spec.ports[0].target_port,
+                    profile_strategy_name='_profile_k8s_service',
+                    provider='k8s',
+                    from_hint=False
+                )
+                node_transports.append(node_transport)
+                logs.logger.debug("Found %d profile results for %s, profile strategy: \"%s\"..",
+                                  len(node_transports), address, '_profile_k8s_service')
             return node_transports
 
         except ApiException as exc:
             print(f"Exception when calling CoreV1Api: {exc}")
             return []
 
-    async def _profile_pod(self, address: str, pfs: ProfileStrategy) -> List[NodeTransport]:
-        shell_command = pfs.provider_args['shell_command']
-        exec_command = ['bash', '-c', shell_command]
-        pod = await self._get_pod(address)
-        if not pod:
-            return []
-
-        containers = pod.spec.containers
-        containers = [c for c in containers if True not in
-                      [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
-
+    async def _profile_pod(self, address: str, pfss: List[ProfileStrategy]) -> List[NodeTransport]:
         node_transports = []
-        for container in containers:
-            ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
-                                                                    container=container.name, command=exec_command,
-                                                                    stderr=True, stdin=False, stdout=True, tty=False)
-            node_transports.extend(parse_profile_strategy_response(ret, address, pfs.name))
+        for pfs in pfss:
+            shell_command = pfs.provider_args['shell_command']
+            exec_command = ['bash', '-c', shell_command]
+            pod = await self._get_pod(address)
+            if not pod:
+                return []
+
+            containers = pod.spec.containers
+            containers = [c for c in containers if True not in
+                          [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
+
+            for container in containers:
+                ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
+                                                                        container=container.name, command=exec_command,
+                                                                        stderr=True, stdin=False, stdout=True,
+                                                                        tty=False)
+                node_transport = parse_profile_strategy_response(ret, address, pfs)
+                node_transports.extend(node_transport)
         return node_transports
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
@@ -185,7 +197,14 @@ class ProviderKubernetes(ProviderInterface):
             print(colored(hint, 'yellow'))
             sys.exit(1)
 
-        return [NodeTransport(hint.protocol_mux, address, hint.service_name)]
+        return [NodeTransport(
+            profile_strategy_name=HINT_PROFILE_STRATEGY.name,
+            provider=hint.provider,
+            protocol=hint.protocol,
+            protocol_mux=hint.protocol_mux,
+            address=address,
+            debug_identifier=hint.service_name
+        )]
 
     async def _get_pod(self, pod_name: str) -> Optional[client.models.V1Pod]:
         """
@@ -222,8 +241,8 @@ class ProviderKubernetes(ProviderInterface):
                 k8s_service_node = Node(
                     address=k8s_service_address,
                     node_type=NodeType.DEPLOYMENT,
-                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
-                    protocol=INVENTORY_PROFILE_STRATEGY.protocol,
+                    profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
+                    protocol=PROTOCOL_TCP,
                     protocol_mux=ports.node_port,
                     provider='k8s',
                     service_name=k8s_service_name
@@ -231,7 +250,7 @@ class ProviderKubernetes(ProviderInterface):
                 # lb protocol/mux will be filled in when a connection is profiled thereto it
                 lb_node = Node(
                     node_type=NodeType.TRAFFIC_CONTROLLER,
-                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                    profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     provider='k8s',
                     service_name=lb_name,
                     aliases=[lb_address]

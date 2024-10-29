@@ -4,7 +4,6 @@ from dataclasses import replace
 from types import SimpleNamespace
 import pytest
 
-from astrolabe import profile_strategy
 from astrolabe import network
 from astrolabe import constants
 from astrolabe import node
@@ -57,8 +56,7 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
     # - protocol
     proto_ref, proto_name, proto_blocking, proto_is_database = ('foo', 'bar', True, False)
     # - profile strategy
-    ps_description, ps_name, ps_providers, ps_provider_args, ps_child_provider, ps_filter, ps_rewrites = \
-        ('foo', 'bar', ['baz'], {'buzz': 'buzzbuzz'}, {'qux': True}, {'quux': True}, {'quz': True})
+    ps_name = 'bar'
     # - node
     node_ref, node_prov, node_mux, node_hint, node_address, node_service_name, node_children, node_warn, node_err = \
         ('a_ref', 'a_prov', 'a_mux', True, 'an_add', 'a_name', {'foo': 'child'}, {'bar': True}, {'baz': True})
@@ -79,23 +77,7 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
       "children": {json.dumps(node_children)},
       "warnings": {json.dumps(node_warn)},
       "errors": {json.dumps(node_err)},
-      "profile_strategy": {{
-        "__type__": "ProfileStrategy",
-        "description": "{ps_description}",
-        "name": "{ps_name}",
-        "providers": {json.dumps(ps_providers)},
-        "provider_args": {json.dumps(ps_provider_args)},
-        "child_provider": {json.dumps(ps_child_provider)},
-        "service_name_filter": {json.dumps(ps_filter)},
-        "service_name_rewrites": {json.dumps(ps_rewrites)},
-        "protocol": {{
-          "__type__": "Protocol",
-          "ref": "{proto_ref}",
-          "name": "{proto_name}",
-          "blocking": {str(proto_blocking).lower()},
-          "is_database": {str(proto_is_database).lower()}
-        }}
-      }},
+      "profile_strategy_name": "{ps_name}",
       "protocol": {{
         "__type__": "Protocol",
         "ref": "{proto_ref}",
@@ -125,19 +107,11 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
     assert loaded_node.children == node_children
     assert loaded_node.warnings == node_warn
     assert loaded_node.errors == node_err
-    # - ProfileStrategy()
-    assert isinstance(loaded_node.profile_strategy, profile_strategy.ProfileStrategy)
-    loaded_cs = loaded_node.profile_strategy
-    assert loaded_cs.description == ps_description
-    assert loaded_cs.name == ps_name
-    assert loaded_cs.providers == ps_providers
-    assert loaded_cs.provider_args == ps_provider_args
-    assert loaded_cs.child_provider == ps_child_provider
-    assert loaded_cs.service_name_filter == ps_filter
-    assert loaded_cs.service_name_rewrites == ps_rewrites
+    # - ProfileStrategy
+    assert loaded_node.profile_strategy_name == ps_name
     # - Protocol
-    assert isinstance(loaded_cs.protocol, network.Protocol)
-    loaded_protocol = loaded_cs.protocol
+    assert isinstance(loaded_node.protocol, network.Protocol)
+    loaded_protocol = loaded_node.protocol
     assert loaded_protocol.ref == proto_ref
     assert loaded_protocol.name == proto_name
     assert loaded_protocol.blocking == proto_blocking
@@ -193,16 +167,13 @@ def test_dump_case_objects(cli_args_fixture, tmp_json_dumpfile, node_fixture, pr
     protocol = replace(protocol_fixture, ref=proto_ref, name=proto_name, blocking=proto_blocking,
                        is_database=proto_is_database)
     # - profile strategy
-    ps_description, ps_name, ps_providers, ps_provider_args, ps_child_provider, ps_filter, ps_rewrites = \
-        ('foo', 'bar', ['baz'], {'buzz': 'buzzbuzz'}, {'qux': True}, {'quux': True}, {'quz': True})
-    psf = replace(profile_strategy_fixture, description=ps_description, name=ps_name, protocol=protocol,
-                  providers=ps_providers, provider_args=ps_provider_args, child_provider=ps_child_provider,
-                  service_name_filter=ps_filter, service_name_rewrites=ps_rewrites)
+    ps_name = 'bar'
+
     # - node
     node_ref, provider, mux, from_hint, address, service_name, children, warnings, errors = \
         ('fake_ref', 'provider', 'bar_mux', True, 'baz_add', 'buz_name', {'qux': 'child'},
          {'quux_warn': True}, {'quuz_err': True})
-    node_fixture.profile_strategy = psf
+    node_fixture.profile_strategy_name = ps_name
     node_fixture.provider = provider
     node_fixture.protocol = protocol
     node_fixture.protocol_mux = mux
@@ -239,12 +210,5 @@ def test_dump_case_objects(cli_args_fixture, tmp_json_dumpfile, node_fixture, pr
     assert node_dict['protocol']['blocking'] == proto_blocking
     assert node_dict['protocol']['is_database'] == proto_is_database
     # - profile strategy
-    assert node_dict.get('profile_strategy')
-    assert node_dict['profile_strategy']['description'] == ps_description
-    assert node_dict['profile_strategy']['name'] == ps_name
-    assert node_dict['profile_strategy']['protocol']['ref'] == protocol.ref
-    assert node_dict['profile_strategy']['providers'] == ps_providers
-    assert node_dict['profile_strategy']['provider_args'] == ps_provider_args
-    assert node_dict['profile_strategy']['child_provider'] == ps_child_provider
-    assert node_dict['profile_strategy']['service_name_filter'] == ps_filter
-    assert node_dict['profile_strategy']['service_name_rewrites'] == ps_rewrites
+    assert node_dict.get('profile_strategy_name')
+    assert node_dict['profile_strategy_name'] == ps_name

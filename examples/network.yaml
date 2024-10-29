@@ -22,3 +22,7 @@ skips:          # a list of substrings for which services will be skipped if the
   service_names:    # these will have connections established and service name lookup performed, but not profiled
     - "bar"
     - "baz"
+service-name-rewrites: # (dict) - a dict of "service_name": `string template` pairs with which to rewrite service names
+  foo-service: "bar-$protocol_mux"    # the service name will be substring matched.  the rewrite will be applied and all
+  # itsybitsy.node.Node() object attributes will be available as interpolated variables
+  # i.e. $protocol_mux, $ip, $provider

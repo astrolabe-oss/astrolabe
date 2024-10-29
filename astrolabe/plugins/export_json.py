@@ -17,7 +17,6 @@ from datetime import datetime
 from typing import Dict
 
 from astrolabe import constants, exporters
-from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.network import Protocol
 from astrolabe.node import Node, NodeType
 
@@ -52,8 +51,6 @@ def _deserialize_object(dct: dict):
 
     if 'Node' == dct_type:
         return Node(**dct)
-    elif 'ProfileStrategy' == dct_type:
-        return ProfileStrategy(**dct)
     elif 'Protocol' == dct_type:
         return Protocol(**dct)
     elif 'NodeType' == dct_type:

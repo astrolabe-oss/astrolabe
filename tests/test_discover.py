@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from astrolabe.providers import TimeoutException
-from astrolabe import database, discover, node, providers
+from astrolabe import database, discover, node, providers, constants
 
 
 @pytest.fixture(autouse=True)
@@ -28,40 +28,9 @@ def set_default_timeout(cli_args_mock):
     cli_args_mock.timeout = 30
 
 
-@pytest.fixture
-def mock_provider_ref() -> str:
-    return 'mock_provider'
-
-
-@pytest.fixture
-def provider_mock(mocker, mock_provider_ref) -> MagicMock:
-    provider_mock = mocker.patch('astrolabe.providers.ProviderInterface', autospec=True)
-    provider_mock.ref.return_value = mock_provider_ref
-    mocker.patch('astrolabe.providers.get_provider_by_ref', return_value=provider_mock)
-
-    return provider_mock
-
-
 @pytest.fixture(autouse=True)
-def ps_mock(protocol_fixture, mocker, mock_provider_ref) -> MagicMock:
-    """it is a required fixture to include, whether or not it is used explicitly, in or to mock profile"""
-    ps_mock = mocker.patch('astrolabe.profile_strategy.ProfileStrategy', autospec=True)
-    mocker.patch('astrolabe.profile_strategy.profile_strategies', [ps_mock])
-    ps_mock.rewrite_service_name.side_effect = lambda x, y: x
-    ps_mock.filter_service_name.return_value = False
-    ps_mock.protocol = protocol_fixture
-    ps_mock.provider_args = {}
-    ps_mock.providers = [mock_provider_ref]
-
+def ps_mock_autouse(ps_mock) -> MagicMock:
     return ps_mock
-
-
-@pytest.fixture
-def protocol_mock(mocker, dummy_protocol_ref) -> MagicMock:
-    protocol_mock = mocker.patch('astrolabe.network.Protocol')
-    protocol_mock.ref = dummy_protocol_ref
-
-    return protocol_mock
 
 
 @pytest.fixture
@@ -155,7 +124,6 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
     # mock profile strategy
     stub_provider_args = {'baz': 'buz'}
     ps_mock.provider_args = stub_provider_args
-    ps_mock.providers = [provider_mock.ref()]
 
     # act
     await discover.discover(tree, [])
@@ -163,7 +131,7 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
     # assert
     provider_mock.open_connection.assert_called_once_with(list(tree.values())[0].address)
     provider_mock.lookup_name.assert_called_once_with(list(tree.values())[0].address, stub_connection)
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, ps_mock, stub_connection)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [ps_mock], stub_connection)
 
 
 @pytest.mark.asyncio
@@ -234,15 +202,15 @@ async def test_discover_case_open_connection_handles_exceptions(tree, provider_m
 
 # Calls to ProviderInterface::lookup_name
 @pytest.mark.asyncio
-async def test_discover_case_lookup_name_uses_cache(tree, provider_mock, ps_mock):
+async def test_discover_case_lookup_name_uses_cache(tree, provider_mock, ps_mock, protocol_mock):
     """Validate the calls to lookup_name for the same address are cached.  We uses 3 levels of the tree
        to ensure that the 2nd time calls are made for a node of this address, that there has been async
        propagation time for caching"""
     # arrange
     name1 = 'foo_name1'
     node1 = list(tree.values())[0]
-    node2 = node.NodeTransport('whatever', 'foo_addy2')
-    node2_child = node.NodeTransport(node1.protocol_mux, node1.address)
+    node2 = node.NodeTransport('PS_NAME', provider_mock.ref, protocol_mock, 'whatever', 'foo_addy2')
+    node2_child = node.NodeTransport('PS_NAME', provider_mock.ref, protocol_mock, node1.protocol_mux, node1.address)
     provider_mock.lookup_name.side_effect = [name1, 'node_2_service_name', name1]
     provider_mock.profile.side_effect = [[node2], [node2_child], []]
     ps_mock.providers = [provider_mock.ref()]
@@ -281,7 +249,7 @@ async def test_discover_case_lookup_name_handles_exceptions(tree, provider_mock)
         await discover.discover(tree, [])
 
 
-# pylint:disable=too-many-arguments
+# pylint:disable=too-many-arguments,too-many-positional-arguments
 # Calls to ProviderInterface::profile
 @pytest.mark.asyncio
 @pytest.mark.parametrize('name,profile_expected,warning', [(None, True, 'NAME_LOOKUP_FAILED'), ('foo', True, None)])
@@ -314,13 +282,14 @@ async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock
     provider_mock.profile.assert_not_called()
 
 
+# pytest:disable=too-many-positional-arguments
 @pytest.mark.parametrize('name1,name2,provider1,provider2,uses_cache', [
     ('service_A', 'service_A', 'prov_A', 'prov_A', True),
     ('service_A', 'service_B', 'prov_A', 'prov_A', False),
     ('service_A', 'service_A', 'prov_A', 'prov_B', False)
 ])
 @pytest.mark.asyncio
-async def test_discover_case_profile_caching(tree, node_fixture_factory, provider_mock, ps_mock,
+async def test_discover_case_profile_caching(tree, node_fixture_factory, provider_mock, ps_mock, protocol_mock,
                                              name1, name2, provider1, provider2, uses_cache):
     """Validate the calls to profile for the same service_name and provider are cached.  Caching is only guaranteed for
     different depths in the tree since siblings execute concurrently - and so we have to test a tree with more
@@ -335,7 +304,7 @@ async def test_discover_case_profile_caching(tree, node_fixture_factory, provide
     node1.provider = provider1
     node2 = node_fixture_factory()
     node2.address = 'foo'  # must be different than list(tree.values())[0].address to avoid caching
-    node2_child = node.NodeTransport('foo_mux', 'bar_address')
+    node2_child = node.NodeTransport('PS_NAME', provider2, protocol_mock, 'foo_mux', 'bar_address')
     tree['dummy2'] = node2
     provider_mock.lookup_name.side_effect = [name1, 'node_2_service_name', name2]
     provider_mock.profile.side_effect = [[], [node2_child], []]
@@ -352,7 +321,7 @@ async def test_discover_case_profile_caching(tree, node_fixture_factory, provide
 
 
 @pytest.mark.asyncio
-async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_args_mock):
+async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_args_mock, ps_mock_autouse):
     """Timeout is respected during profile and results in a TIMEOUT error"""
     # arrange
     cli_args_mock.timeout = .1
@@ -361,7 +330,7 @@ async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_ar
         await asyncio.sleep(1)
     provider_mock.lookup_name.return_value = 'dummy'
     provider_mock.profile.side_effect = slow_profile
-    ps_mock.providers = [provider_mock.ref()]
+    ps_mock_autouse.providers = [provider_mock.ref()]
 
     # act/assert
     await discover.discover(tree, [])
@@ -402,14 +371,14 @@ async def test_discover_case_cycle(tree, provider_mock):
 
 
 @pytest.mark.asyncio
-async def test_discover_case_service_name_rewrite_cycle_detected(tree, provider_mock, ps_mock):
+async def test_discover_case_service_name_rewrite_cycle_detected(tree, provider_mock, mocker):
     """Validate cycles are detected for rewritten service names"""
     # arrange
     cycle_service_name = 'foops_i_did_it_again'
     provider_mock.lookup_name.return_value = 'original_service_name'
-    list(tree.values())[0].profile_strategy = ps_mock
-    ps_mock.rewrite_service_name.side_effect = None
-    ps_mock.rewrite_service_name.return_value = cycle_service_name
+    rsn_mock = mocker.patch('astrolabe.network.rewrite_service_name')
+    rsn_mock.side_effect = None
+    rsn_mock.return_value = cycle_service_name
 
     # act
     await discover.discover(tree, [cycle_service_name])
@@ -419,6 +388,7 @@ async def test_discover_case_service_name_rewrite_cycle_detected(tree, provider_
 
 
 # Parsing of ProviderInterface::profile
+# pytest:disable=too-many-positional-arguments
 @pytest.mark.asyncio
 @pytest.mark.parametrize('protocol_mux,address,debug_identifier,num_connections,warnings,errors', [
     ('foo_mux', 'bar_address', 'baz_name', 100, [], []),
@@ -428,12 +398,16 @@ async def test_discover_case_service_name_rewrite_cycle_detected(tree, provider_
     ('foo_mux', None, None, None, [], ['NULL_ADDRESS']),
 ])
 async def test_discover_case_profile_results_parsed(protocol_mux, address, debug_identifier, num_connections, warnings,
-                                                    errors, tree, provider_mock, ps_mock):
+                                                    errors, tree, provider_mock, ps_mock, protocol_mock):
     """Crawl results are parsed into Node objects.  We detect 0 connections as a "DEFUNCT" node.  `None` address
     is acceptable, but is detected as a "NULL_ADDRESS" node"""
     # arrange
     seed = list(tree.values())[0]
-    child_nt = node.NodeTransport(protocol_mux, address, debug_identifier, num_connections)
+    child_nt = node.NodeTransport(
+        'PS_NAME', provider_mock.ref, protocol_mock, protocol_mux, address,
+        debug_identifier=debug_identifier,
+        num_connections=num_connections
+    )
     provider_mock.lookup_name.side_effect = ['seed_name', 'child_name']
     provider_mock.profile.side_effect = [[child_nt], []]
     ps_mock.providers = [provider_mock.ref()]
@@ -455,10 +429,10 @@ async def test_discover_case_profile_results_parsed(protocol_mux, address, debug
 
 # Recursive calls to discover::discover()
 @pytest.mark.asyncio
-async def test_discover_case_children_with_address_discovered(tree, provider_mock, ps_mock):
+async def test_discover_case_children_with_address_discovered(tree, provider_mock, ps_mock, protocol_mock):
     """Discovered children with an address are subsequently discovered """
     # arrange
-    child_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address')
+    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref, protocol_mock, 'dummy_protocol_mux', 'dummy_address')
     provider_mock.lookup_name.side_effect = ['seed_name', 'child_name']
     provider_mock.profile.side_effect = [[child_nt], []]
     ps_mock.providers = [provider_mock.ref()]
@@ -474,10 +448,10 @@ async def test_discover_case_children_with_address_discovered(tree, provider_moc
 
 
 @pytest.mark.asyncio
-async def test_discover_case_children_without_address_not_profiled(tree, provider_mock, mocker):
+async def test_discover_case_children_without_address_not_profiled(tree, provider_mock, mocker, protocol_mock):
     """Discovered children without an address are not recursively profiled """
     # arrange
-    child_nt = node.NodeTransport('dummy_protocol_mux', None)
+    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref, protocol_mock, 'dummy_protocol_mux')
     provider_mock.lookup_name.return_value = 'dummy'
     provider_mock.profile.return_value = [child_nt]
     discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
@@ -496,7 +470,8 @@ async def test_discover_case_hint_attributes_set(tree, provider_mock, hint_mock,
     """For hints used in discovering... attributes are correctly translated from the Hint the Node"""
     # arrange
     mocker.patch('astrolabe.network.hints', return_value=[hint_mock])
-    hint_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address', 'dummy_debug_id')
+    hint_nt = node.NodeTransport('PS_NAME', constants.PROVIDER_HINT, hint_mock.protocol, 'dummy_protocol_mux',
+                                 'dummy_address', from_hint=True, debug_identifier='dummy_debug_id')
     provider_mock.take_a_hint.side_effect = [[hint_nt], []]
     provider_mock.lookup_name.side_effect = ['dummy', None]
     providers_get_mock = mocker.patch('astrolabe.providers.get_provider_by_ref', return_value=provider_mock)
@@ -518,7 +493,8 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
     (and overwritten by new name, not overwritten by None)"""
     # arrange
     mocker.patch('astrolabe.network.hints', return_value=[hint_mock])
-    hint_nt = node.NodeTransport('dummy_protocol_mux', 'dummy_address', 'dummy_debug_id')
+    hint_nt = node.NodeTransport('PS_NAME', provider_mock.ref, hint_mock.protocol, 'dummy_protocol_mux',
+                                 'dummy_address', from_hint=True, debug_identifier='dummy_debug_id')
     provider_mock.take_a_hint.side_effect = [[hint_nt], []]
     provider_mock.lookup_name.side_effect = ['dummy', None]
 
@@ -533,10 +509,10 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
 
 
 @pytest.mark.asyncio
-async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mocker):
+async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mocker, protocol_mock):
     """Children discovered on these muxes are neither included as children - nor discovered"""
     # arrange
-    child_nt = node.NodeTransport('foo_mux', 'dummy_address')
+    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref, protocol_mock, 'foo_mux', 'dummy_address')
     provider_mock.profile.return_value = [child_nt]
     discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
     mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
@@ -551,10 +527,10 @@ async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mock
 
 
 @pytest.mark.asyncio
-async def test_discover_case_profile_skip_address(tree, provider_mock, mocker):
+async def test_discover_case_profile_skip_address(tree, provider_mock, mocker, protocol_mock):
     """Children discovered on these addresses are neither included as children - nor discovered"""
     # arrange
-    child_nt = node.NodeTransport('foo_mux', 'dummy_address')
+    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref, protocol_mock, 'foo_mux', 'dummy_address')
     provider_mock.profile.return_value = [child_nt]
     discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
     mocker.patch('astrolabe.network.skip_address', return_value=True)
@@ -582,20 +558,19 @@ async def test_discover_case_respect_cli_skip_protocols(tree, provider_mock, ps_
     # act
     await discover.discover(tree, [])
     # assert
-    provider_mock.profile.assert_not_called()
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [], mocker.ANY)
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_disable_providers(tree, provider_mock, ps_mock, cli_args_mock, mocker):
+async def test_discover_case_respect_cli_disable_providers(tree, provider_mock, cli_args_mock, mocker, protocol_mock):
     """Children discovered which have been determined to use disabled providers - are neither included in the tree
     nor discovered"""
     # arrange
     disable_this_provider = 'foo_provider'
     cli_args_mock.disable_providers = [disable_this_provider]
-    child_nt = node.NodeTransport('dummy_mux', 'dummy_address')
+    child_nt = node.NodeTransport('PS_NAME', disable_this_provider, protocol_mock, 'dummy_mux', 'dummy_address')
     provider_mock.lookup_name.return_value = 'bar_name'
     provider_mock.profile.return_value = [child_nt]
-    ps_mock.determine_child_provider.return_value = disable_this_provider
     discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
 
     # act
@@ -624,18 +599,18 @@ async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args_mock):
+async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args_mock, ps_mock_autouse):
     """We need to test a child for protocol mux obfuscation since the tree is already populated with a fully hydrated
         Node - which is past the point of obfuscation"""
     # arrange
     cli_args_mock.obfuscate = True
     seed_service_name = 'actual_service_name_foo'
     child_protocol_mux = 'child_actual_protocol_mux'
-    child_nt = node.NodeTransport(child_protocol_mux)
+    child_nt = node.NodeTransport('FAKE_PS', provider_mock.ref, ps_mock_autouse.protocol, child_protocol_mux)
     provider_mock.lookup_name.return_value = seed_service_name
     provider_mock.lookup_name.return_value = 'dummy_service_name'
     provider_mock.profile.side_effect = [[child_nt], []]
-    ps_mock.providers = [provider_mock.ref()]
+    ps_mock_autouse.providers = [provider_mock.ref()]
 
     # act
     await discover.discover(tree, [])
@@ -649,7 +624,7 @@ async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args
 
 # respect profile_strategy / network configurations
 @pytest.mark.asyncio
-async def test_discover_case_respect_ps_filter_service_name(tree, provider_mock, ps_mock):
+async def test_discover_case_respect_ps_filter_service_name(tree, provider_mock, ps_mock, mocker):
     """We respect when a service name is configured to be skipped by a specific profile strategy"""
     # arrange
     ps_mock.filter_service_name.return_value = True
@@ -660,19 +635,19 @@ async def test_discover_case_respect_ps_filter_service_name(tree, provider_mock,
 
     # assert
     ps_mock.filter_service_name.assert_called_once_with(list(tree.values())[0].service_name)
-    provider_mock.profile.assert_not_called()
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [], mocker.ANY)
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_ps_service_name_rewrite(tree, provider_mock, ps_mock):
+async def test_discover_case_respect_network_service_name_rewrite(tree, provider_mock, mocker):
     """Validate service_name_rewrites are called and used"""
     # arrange
     service_name = 'foo_name'
     rewritten_service_name = 'bar_name'
     provider_mock.lookup_name.return_value = service_name
-    list(tree.values())[0].profile_strategy = ps_mock
-    ps_mock.rewrite_service_name.side_effect = None
-    ps_mock.rewrite_service_name.return_value = rewritten_service_name
+    rsn_mock = mocker.patch('astrolabe.network.rewrite_service_name')
+    rsn_mock.side_effect = None
+    rsn_mock.return_value = rewritten_service_name
 
     # act
     await discover.discover(tree, [])

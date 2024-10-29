@@ -23,10 +23,10 @@ def test_obfuscate_service_name():
 
 
 @pytest.mark.parametrize('real_mux,expect_mux_match', [('8080', '[0-9]+'), ('foobar', '[a-z]+#[a-z]+')])
-def test_obfuscate_node_transport_case_protocol_mux(real_mux, expect_mux_match):
+def test_obfuscate_node_transport_case_protocol_mux(real_mux, expect_mux_match, provider_mock):
     """obfuscate twice to ensure consistent obfuscation"""
     # arrange
-    node_transport = node.NodeTransport(real_mux)
+    node_transport = node.NodeTransport('FAKE', provider_mock, 'FAKE', real_mux)
 
     # act
     obfuscated_node_transport = obfuscate.obfuscate_node_transport(node_transport)

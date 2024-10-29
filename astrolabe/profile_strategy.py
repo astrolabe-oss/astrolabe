@@ -14,8 +14,7 @@ SPDX-License-Identifier: Apache-2.0
 
 import typing
 import re
-from dataclasses import dataclass, asdict
-from string import Template
+from dataclasses import dataclass
 from typing import List, Optional
 from yaml import safe_load_all
 
@@ -35,7 +34,6 @@ class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
     provider_args: dict
     child_provider: dict
     service_name_filter: dict
-    service_name_rewrites: dict
     __type__: str = 'ProfileStrategy'  # for json serialization/deserialization
 
     def filter_service_name(self, service_name: str) -> bool:
@@ -85,35 +83,11 @@ class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
         logs.logger.fatal("child provider match type: %s not supported", self.child_provider['type'])
         raise ProfileStrategyException()
 
-    def rewrite_service_name(self, service_name: str, node) -> str:
-        """
-        Some service names have to be filtered/rewritten.  It uses string.Template
-        to re-write the service name based on node attributes.
-
-        :param service_name: the service name to rewrite, if needed
-        :param node: used to interpolate attributes into the rewrite
-        :return:
-        """
-        for match, rewrite in self.service_name_rewrites.items():
-            if service_name and match in service_name:
-                return Template(rewrite).substitute(dict(asdict(node)))
-
-        return service_name
-
 
 profile_strategies: typing.List[ProfileStrategy] = []
 _seed_profile_strategy_child_provider = {'type': 'matchAll', 'provider': constants.PROVIDER_SSH}
-SEED_PROFILE_STRATEGY = ProfileStrategy(
-    description='Seed Discovery Strategy',
-    name='Seed',
-    protocol=network.PROTOCOL_SEED,
-    providers=[constants.PROVIDER_SEED],
-    provider_args='',
-    child_provider=_seed_profile_strategy_child_provider,
-    service_name_filter={},
-    service_name_rewrites={}
-)
-
+SEED_PROFILE_STRATEGY_NAME = 'SEED'
+INVENTORY_PROFILE_STRATEGY_NAME = 'Inventory'
 HINT_PROFILE_STRATEGY = ProfileStrategy(
     description='Hint Discovery Strategy',
     name='Hint',
@@ -121,18 +95,7 @@ HINT_PROFILE_STRATEGY = ProfileStrategy(
     providers=[constants.PROVIDER_HINT],
     provider_args='',
     child_provider={},
-    service_name_filter={},
-    service_name_rewrites={}
-)
-INVENTORY_PROFILE_STRATEGY = ProfileStrategy(
-    description='Inventory Discovery Strategy',
-    name='Inventory',
-    protocol=network.PROTOCOL_INVENTORY,
-    providers=[constants.PROVIDER_HINT],
-    provider_args='',
-    child_provider={},
-    service_name_filter={},
-    service_name_rewrites={}
+    service_name_filter={}
 )
 
 
@@ -155,8 +118,7 @@ def _load_profile_strategies():
                         dct['providers'],
                         dct['providerArgs'],
                         dct['childProvider'],
-                        dct['serviceNameFilter'] if 'serviceNameFilter' in dct else {},
-                        dct['serviceNameRewrites'] if 'serviceNameRewrites' in dct else {}
+                        dct['serviceNameFilter'] if 'serviceNameFilter' in dct else {}
                     )
                     profile_strategies.append(pfs)
                     logs.logger.debug('Loaded ProfileStrategy:')

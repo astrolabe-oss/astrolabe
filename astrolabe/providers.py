@@ -97,21 +97,22 @@ class ProviderInterface(PluginInterface):
         del hint
         return []
 
-    async def profile(self, address: str, pfs: ProfileStrategy, connection: Optional[type]) -> List[NodeTransport]:
+    async def profile(self, address: str, pfss: List[ProfileStrategy], connection: Optional[type])\
+            -> List[NodeTransport]:
         """
-        Discover provider for downstream services using ProfileStrategy.  Default response when subclassing will be a
+        Discover provider for downstream services using ProfileStrategies.  Default response when subclassing will be a
         no-op, which allows provider subclasses to only implement aspects of this classes functionality a-la-cart style.
         Please cache your results to improve system performance!
 
         :param address: address to discover
-        :param pfs: ProfileStrategy used to profile
+        :param pfss: A list of ProfileStrategies used to profile
         :param connection: optional connection.  for example if an ssh connection was opened during
                                    lookup_name() it can be returned there and re-used here
         :Keyword Arguments: extra arguments passed to provider from ProfileStrategy.provider_args
 
         :return: the children as a list of Node()s
         """
-        del address, connection, pfs
+        del address, connection, pfss
         return []
 
 
@@ -134,19 +135,22 @@ def get_provider_by_ref(provider_ref: str) -> ProviderInterface:
     return _provider_registry.get_plugin(provider_ref)
 
 
-def parse_profile_strategy_response(response: str, address: str, pfs_name: str) -> List[NodeTransport]:
+def parse_profile_strategy_response(response: str, host_address: str, pfs: ProfileStrategy) -> List[NodeTransport]:
     lines = response.splitlines()
     if len(lines) < 2:
         return []
     header_line = lines.pop(0)
-    node_transports = [_create_node_transport_from_profile_strategy_response_line(header_line, data_line)
-                       for data_line in lines]
+    node_transports = [
+        _create_node_transport_from_profile_strategy_response_line(
+            header_line, data_line, pfs
+        ) for data_line in lines
+    ]
     logs.logger.debug("Found %d profile results for %s, profile strategy: \"%s\"..",
-                      len(node_transports), address, pfs_name)
+                      len(node_transports), host_address, pfs.name)
     return node_transports
 
 
-def _create_node_transport_from_profile_strategy_response_line(header_line: str, data_line: str):
+def _create_node_transport_from_profile_strategy_response_line(header_line: str, data_line: str, pfs: ProfileStrategy):
     field_map = {
         'mux': 'protocol_mux',
         'address': 'address',
@@ -167,4 +171,9 @@ def _create_node_transport_from_profile_strategy_response_line(header_line: str,
         fields['metadata'] = dict(tuple(i.split('=') for i in fields['metadata'].split(',')))
     if 'conns' in fields:
         fields['conns'] = int(fields['conns'])
-    return NodeTransport(**{field_map[k]: v for k, v in fields.items() if v})
+
+    # provider
+    from_hint = constants.PROVIDER_HINT in pfs.providers
+    provider = pfs.determine_child_provider(fields['mux'], fields.get('address'))
+    return NodeTransport(profile_strategy_name=pfs.name, provider=provider, from_hint=from_hint,
+                         protocol=pfs.protocol, **{field_map[k]: v for k, v in fields.items() if v})

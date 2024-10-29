@@ -332,7 +332,7 @@ def test_export_tree_case_edge_child_hint(tree_named, node_fixture, capsys):
     assert "style=bold" in edge_line
 
 
-#  pylint:disable=too-many-arguments,too-many-locals
+#  pylint:disable=too-many-arguments,too-many-locals,too-many-positional-arguments
 @pytest.mark.parametrize('containerized,shape_string', [(False, ''), (True, 'shape=septagon ')])
 def test_export_tree_case_node_hint_merged(containerized, shape_string, tree_named, protocol_fixture,
                                            node_fixture_factory, capsys):

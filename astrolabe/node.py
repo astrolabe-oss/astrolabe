@@ -16,8 +16,6 @@ from dataclasses import dataclass, field, asdict, is_dataclass, fields
 from datetime import datetime
 import json
 
-from astrolabe import profile_strategy, network
-
 
 database_muxes = ['3306', '9160', '5432', '6379', '11211']
 
@@ -31,30 +29,44 @@ class NodeType(Enum):
     __type__: str = 'NodeType'  # for json serialization/deserialization
 
 
+# pylint:disable=too-many-instance-attributes
 @dataclass(frozen=True)
 class NodeTransport:
     """Data Transport object for Node.  Forms a binding contract between providers and discover().
 
     Attributes
+        profile_strategy: the ProfileStrategy used to discover this NodeTransport
+        provider: Node provider ref
+        protocol: the protocol of the NodeTransport
         protocol_mux: the protocol multiplexer (port for TCP, nsq topic:channel for NSQ).
         address: the node address.  e.g. "IP address" or k8s pod name
+        from_hint: wether the node transport is from a Hint
         debug_identifier: like the "name" of the service - but it is not the official name and only used for debug/logs
         num_connections: optional num_connections.  if 0, node will be marked as "DEFUNCT"
         metadata: optional key-value pairs of metadata.  not used by core but useful to custom plugins
     """
+    profile_strategy_name: str  # name of profile strategy used to discover node
+    provider: str
+    protocol: 'network.Protocol'  # NOQA  (string import for type hint to avoid circular dependency)
     protocol_mux: str
     address: Optional[str] = None
+    from_hint: bool = False
     debug_identifier: Optional[str] = None
     num_connections: Optional[int] = None
     metadata: Optional[dict] = field(default_factory=dict)
     node_type: NodeType = NodeType(NodeType.NULL)
 
+    def __post_init__(self):
+        if self.protocol_mux:
+            object.__setattr__(self, 'protocol_mux', str(self.protocol_mux))
 
+
+# pylint:disable=too-many-instance-attributes
 @dataclass
-class Node:  # pylint:disable=too-many-instance-attributes
-    profile_strategy: profile_strategy.ProfileStrategy
+class Node:
+    profile_strategy_name: str  # name of the profile strategy used to determine, for debugging
     provider: str
-    protocol: network.Protocol = None
+    protocol: 'network.Protocol' = None  # NOQA  (string import for type hint to avoid circular dependency)
     protocol_mux: str = None
     containerized: bool = False
     from_hint: bool = False
@@ -74,8 +86,6 @@ class Node:  # pylint:disable=too-many-instance-attributes
         def custom_serializer(obj):
             if hasattr(obj, '__dataclass_fields__'):
                 obj_dict = asdict(obj)
-                if 'profile_strategy' in obj_dict:
-                    obj_dict['profile_strategy'] = obj.profile_strategy.name
                 if 'node_type' in obj_dict:
                     obj_dict['node_type'] = str(obj.node_type)
                 return {key: custom_serializer(value) for key, value in obj_dict.items()}

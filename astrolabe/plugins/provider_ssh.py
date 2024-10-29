@@ -81,18 +81,23 @@ class ProviderSSH(ProviderInterface):
         logs.logger.debug("Running sidecars for address %s", address)
         await _sidecar_lookup_hostnames(address, connection)
 
-    async def profile(self, address: str, pfs: ProfileStrategy, connection: SSHClientConnection) -> List[NodeTransport]:
-        try:
-            command = pfs.provider_args['shell_command']
-        except IndexError as exc:
-            print(colored(f"Crawl Strategy incorrectly configured for provider SSH.  "
-                          f"Expected **kwargs['shell_command']. Got:{str(pfs.provider_args)}", 'red'))
-            raise exc
-        response = await connection.run(command)
-        if response.stdout.strip().startswith('ERROR:'):
-            raise Exception("CRAWL ERROR: %s" %  # pylint: disable=broad-exception-raised
-                            response.stdout.strip().replace("\n", "\t"))
-        return parse_profile_strategy_response(response.stdout.strip(), address, pfs.name)
+    async def profile(self, address: str, pfss: List[ProfileStrategy], connection: SSHClientConnection)\
+            -> List[NodeTransport]:
+        node_transports = []
+        for pfs in pfss:
+            try:
+                command = pfs.provider_args['shell_command']
+            except IndexError as exc:
+                print(colored(f"Crawl Strategy incorrectly configured for provider SSH.  "
+                              f"Expected **kwargs['shell_command']. Got:{str(pfs.provider_args)}", 'red'))
+                raise exc
+            response = await connection.run(command)
+            if response.stdout.strip().startswith('ERROR:'):
+                raise Exception("CRAWL ERROR: %s" %  # pylint: disable=broad-exception-raised
+                                response.stdout.strip().replace("\n", "\t"))
+            i_node_transports = parse_profile_strategy_response(response.stdout.strip(), address, pfs)
+            node_transports.extend(i_node_transports)
+        return node_transports
 
 
 async def _get_connection(host: str, retry_num=0) -> asyncssh.SSHClientConnection:

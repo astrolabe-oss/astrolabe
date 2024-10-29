@@ -171,7 +171,7 @@ def _parse_seed_tree() -> Dict[str, node.Node]:
     return {
         f"SEED:{address}":
             node.Node(
-                profile_strategy=profile_strategy.SEED_PROFILE_STRATEGY,
+                profile_strategy_name=profile_strategy.SEED_PROFILE_STRATEGY_NAME,
                 protocol=network.PROTOCOL_SEED,
                 protocol_mux='seed',
                 provider=provider,

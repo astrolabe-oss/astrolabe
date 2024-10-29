@@ -26,10 +26,10 @@ from termcolor import colored
 
 from astrolabe import database, constants, logs
 from astrolabe.node import Node, NodeTransport, NodeType
-from astrolabe.network import Hint
+from astrolabe.network import Hint, PROTOCOL_TCP
 from astrolabe.providers import ProviderInterface
 from astrolabe.plugin_core import PluginArgParser
-from astrolabe.profile_strategy import INVENTORY_PROFILE_STRATEGY
+from astrolabe.profile_strategy import INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY
 
 TAG_NAME_POS = 0
 TAG_VALUE_POS = 1
@@ -66,7 +66,14 @@ class ProviderAWS(ProviderInterface):
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
         instance_address = await self._resolve_instance(hint.service_name)
-        return [NodeTransport(hint.protocol_mux, instance_address, hint.service_name)]
+        return [NodeTransport(
+            profile_strategy_name=HINT_PROFILE_STRATEGY.name,
+            provider=hint.provider,
+            protocol=hint.protocol,
+            protocol_mux=hint.protocol_mux,
+            address=instance_address,
+            debug_identifier=hint.service_name
+        )]
 
     async def _resolve_instance(self, service_name: str) -> str:
         """
@@ -131,7 +138,7 @@ class ProviderAWS(ProviderInterface):
                 # Add instance information to the global dictionary
                 node = Node(
                     node_type=NodeType.RESOURCE,
-                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                    profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     provider='aws',
                     service_name=name,
                     aliases=[rds_address]
@@ -149,7 +156,7 @@ class ProviderAWS(ProviderInterface):
                     es_address = node['Endpoint']['Address']
                     node = Node(
                         node_type=NodeType.RESOURCE,
-                        profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                        profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                         provider='aws',
                         service_name=cluster_name,
                         aliases=[es_address]
@@ -192,8 +199,8 @@ class ProviderAWS(ProviderInterface):
                                 asg_node = Node(
                                     address=asg_address,
                                     node_type=NodeType.DEPLOYMENT,
-                                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
-                                    protocol=INVENTORY_PROFILE_STRATEGY.protocol,
+                                    profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
+                                    protocol=PROTOCOL_TCP,
                                     protocol_mux=tg_port,
                                     provider='aws',
                                     service_name=asg_name
@@ -207,8 +214,8 @@ class ProviderAWS(ProviderInterface):
                             ec2_node = Node(
                                 address=public_ip,
                                 node_type=NodeType.COMPUTE,
-                                profile_strategy=INVENTORY_PROFILE_STRATEGY,
-                                protocol=INVENTORY_PROFILE_STRATEGY.protocol,
+                                profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
+                                protocol=PROTOCOL_TCP,
                                 protocol_mux=tg_port,
                                 provider='ssh'
                             )
@@ -219,7 +226,7 @@ class ProviderAWS(ProviderInterface):
                 # Create the ALB Node
                 lb_node = Node(
                     node_type=NodeType.TRAFFIC_CONTROLLER,
-                    profile_strategy=INVENTORY_PROFILE_STRATEGY,
+                    profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     provider='aws',
                     service_name=name,
                     aliases=[lb_address],

@@ -3,7 +3,7 @@ type: "ProfileStrategy"
 name: "Example"
 description: "An Example SSH ProfileStrategy"
 provider: ["ssh"]     # ("ssh")       - Currently only ssh provider is supported. Future plans for "aws" and "k8s"
-protocol: "EXP"       # (str)         - A user defined PROTOCOL.  Defined in ()[./web.yaml] Used for display, you can then skip crawling by passing --skip-protocols
+protocol: "EXP"       # (str)         - A user defined PROTOCOL.  Defined in ()[./network.yaml] Used for display, you can then skip crawling by passing --skip-protocols
 providerArgs:         # (dict)        - A dict of arguments for each provider. 'ssh': ['ssh_command']
     foo: |
         any number of provider args can be passed in
@@ -28,7 +28,3 @@ serviceNameFilter:      # (dict["not"|"only":list]) - a dict of filters
         - "foo-service"         # "not"   - (list) - a blacklist of service names to NOT crawl with this strategy
 #    not:
 #      - "my-service-known"
-serviceNameRewrites:    # (dict) - a dict of "service_name": `string template` pairs with which to rewrite service names
-    foo-service: "bar-$protocol_mux"    # the service name will be substring matched.  the rewrite will be applied and all
-                                        # itsybitsy.node.Node() object attributes will be available as interpolated variables
-                                        # i.e. $protocol_mux, $ip, $provider

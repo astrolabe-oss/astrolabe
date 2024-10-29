@@ -1,10 +1,12 @@
 import os
+from dataclasses import replace
+
 import pytest
 
 from astrolabe import network
 
 
-def _write_stub_web_yaml(astrolabe_d: str, contents: str) -> None:
+def _write_stub_network_yaml(astrolabe_d: str, contents: str) -> None:
     """Helper method to write contents to the stub web.yaml file"""
     file = os.path.join(astrolabe_d, 'network.yaml')
     with open(file, 'w', encoding='utf8') as open_file:
@@ -14,22 +16,22 @@ def _write_stub_web_yaml(astrolabe_d: str, contents: str) -> None:
 def test_init_case_success(astrolabe_d, core_astrolabe_d):
     """Network files are initialized from both astrolabe.d directories"""
     # arrange
-    fake_protocol_web_yaml = """
+    fake_protocol_network_yaml = """
 ---
 protocols:
   FOO:
     name: "FOO"
     blocking: true
 """
-    _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
-    fake_protocol_web_yaml = """
+    _write_stub_network_yaml(astrolabe_d, fake_protocol_network_yaml)
+    fake_protocol_network_yaml = """
 ---
 protocols:
   BAR:
     name: "BAR"
     blocking: true
 """
-    _write_stub_web_yaml(core_astrolabe_d, fake_protocol_web_yaml)
+    _write_stub_network_yaml(core_astrolabe_d, fake_protocol_network_yaml)
 
     # act
     network.init()
@@ -38,15 +40,15 @@ protocols:
     assert network.get_protocol("BAR")
 
 
-def test_init_case_malformed_web_yaml(astrolabe_d):
+def test_init_case_malformed_network_yaml(astrolabe_d):
     """Malformed yaml is caught in initializing network"""
     # arrange
-    fake_protocol_web_yaml = """
+    fake_protocol_network_yaml = """
  ---
  :!!#$T%!##
  protocols:
 """
-    _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, fake_protocol_network_yaml)
 
     # act
     with pytest.raises(network.WebYamlException) as e_info:
@@ -59,13 +61,13 @@ def test_init_case_malformed_web_yaml(astrolabe_d):
 def test_init_case_malformed_protocol(astrolabe_d):
     """Well-formed yaml, malformed protocol schema is caught"""
     # arrange
-    fake_protocol_web_yaml = """
+    fake_protocol_network_yaml = """
 ---
 protocols:
   FOO:
     nomnom: "bar"
 """
-    _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, fake_protocol_network_yaml)
 
     # act
     with pytest.raises(network.WebYamlException) as e_info:
@@ -78,11 +80,11 @@ protocols:
 def test_init_case_default_tcp_protocol(astrolabe_d):
     """No user defined protocols still result in TCP protocol defined"""
     # arrange
-    fake_protocol_web_yaml = """
+    fake_protocol_network_yaml = """
 ---
 foo: bar
 """
-    _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, fake_protocol_network_yaml)
 
     # act
     network.init()
@@ -97,7 +99,7 @@ def test_get_protocol(astrolabe_d, protocol_ref, blocking, is_database):
     """We are able get a parsed protocol from profile_strategy which was loaded from disk"""
     # Technically an integration test that tests the interaction of init() and get_protocol()
     # arrange
-    fake_protocol_web_yaml = f"""
+    fake_protocol_network_yaml = f"""
 ---
 protocols:
   {protocol_ref}:
@@ -105,7 +107,7 @@ protocols:
     blocking: {str(blocking).lower()}
     is_database: {str(is_database).lower()}
 """
-    _write_stub_web_yaml(astrolabe_d, fake_protocol_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, fake_protocol_network_yaml)
 
     # act
     network.init()
@@ -133,13 +135,13 @@ def test_skip_address(astrolabe_d, mocker, test, should_skip):
     # Technically an integration test that tests the interaction of init() and skip_service_name()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
-    hint_web_yaml = """
+    hint_network_yaml = """
 skips:
   addresses:
     - "1.2.3.4"
     - "mypod-xyz"
 """
-    _write_stub_web_yaml(astrolabe_d, hint_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, hint_network_yaml)
 
     # act
     network.init()
@@ -169,13 +171,13 @@ def test_skip_service_name(astrolabe_d, mocker, test, should_skip):
     # Technically an integration test that tests the interaction of init() and skip_service_name()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
-    hint_web_yaml = """
+    hint_network_yaml = """
 skips:
   service_names:
     - "foo"
     - "bar"
 """
-    _write_stub_web_yaml(astrolabe_d, hint_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, hint_network_yaml)
 
     # act
     network.init()
@@ -200,13 +202,13 @@ def test_skip_protocol_mux(astrolabe_d, mocker, test, should_skip):
     # Technically an integration test that tests the interaction of init() and skip_protocol_mux()
     # arrange
     mocker.patch('astrolabe.network._validate', return_value=None)
-    hint_web_yaml = """
+    hint_network_yaml = """
 skips:
   service_names:
     - "foo"
     - "bar"
 """
-    _write_stub_web_yaml(astrolabe_d, hint_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, hint_network_yaml)
 
     # act
     network.init()
@@ -230,7 +232,7 @@ def test_hints(astrolabe_d, mocker):
         ('foo-service', 'bar-service', 'BAZ', 'baz-dummy', 'buz', 'qux', 'quux')
     mocker.patch('astrolabe.network._validate', return_value=None)
     get_protocl_func = mocker.patch('astrolabe.network.get_protocol', return_value=protocol_dummy)
-    hint_web_yaml = f"""
+    hint_network_yaml = f"""
 hints:
   {upstream}:
     - service_name: "{downstream}"
@@ -239,7 +241,7 @@ hints:
       provider: "{provider}"
       instance_provider: "{instance_provider}"
 """
-    _write_stub_web_yaml(astrolabe_d, hint_web_yaml)
+    _write_stub_network_yaml(astrolabe_d, hint_network_yaml)
 
     # act
     network.init()
@@ -253,3 +255,50 @@ hints:
     get_protocl_func.assert_called_once_with(protocol)
     assert hint.protocol_mux == mux
     assert hint.instance_provider == instance_provider
+
+
+# rewrite_service_name()
+def test_rewrite_service_name_case_no_rewrite(astrolabe_d, mocker, node_fixture):
+    """Do not rewrite service name if not configured as such"""
+    # arrange
+    mocker.patch('astrolabe.network._validate', return_value=None)
+    network_yaml = """
+protocols:
+"""
+    _write_stub_network_yaml(astrolabe_d, network_yaml)
+    network.init()
+
+    # act/assert
+    assert 'foo' == network.rewrite_service_name('foo', node_fixture)
+
+
+def test_rewrite_service_name_case_noninterpolated_rewrite(astrolabe_d, mocker, node_fixture):
+    """Rewrite service name - simple scenario with no interpolations"""
+    # arrange
+    mocker.patch('astrolabe.network._validate', return_value=None)
+    network_yaml = """
+service-name-rewrites:
+  foo: bar
+"""
+    _write_stub_network_yaml(astrolabe_d, network_yaml)
+    network.init()
+
+    # act/assert
+    assert 'bar' == network.rewrite_service_name('foo', node_fixture)
+
+
+def test_rewrite_service_name_case_interpolated_rewrite(astrolabe_d, mocker, node_fixture):
+    """Rewrite service name with interpolations"""
+    # arrange
+    mocker.patch('astrolabe.network._validate', return_value=None)
+    network_yaml = """
+service-name-rewrites:
+  foo: bar-$protocol_mux
+"""
+    _write_stub_network_yaml(astrolabe_d, network_yaml)
+    network.init()
+
+    node_fixture = replace(node_fixture, protocol_mux='baz')
+
+    # act/assert
+    assert 'bar-baz' == network.rewrite_service_name('foo', node_fixture)

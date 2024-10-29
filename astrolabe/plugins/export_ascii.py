@@ -271,7 +271,7 @@ async def _wait_for_service_names(nodes: Dict[str, Node], depth: int) -> None:
 
 
 def _remaining_nodes_for_debugging(nodes: Dict[str, Node]) -> dict:
-    return {node_ref: {**asdict(node), 'profile_strategy': node.profile_strategy.name}
+    return {node_ref: {**asdict(node), 'profile_strategy': node.profile_strategy_name}
             for node_ref, node in nodes.items() if not node.name_lookup_complete()}
 
 

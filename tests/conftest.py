@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from dataclasses import replace
 from typing import Dict, List
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -23,8 +24,35 @@ def dummy_protocol_ref():
 
 
 @pytest.fixture
+def mock_provider_ref() -> str:
+    return 'mock_provider'
+
+
+@pytest.fixture
+def protocol_mock(mocker, dummy_protocol_ref) -> MagicMock:
+    protocol_mock = mocker.patch('astrolabe.network.Protocol')
+    protocol_mock.ref = dummy_protocol_ref
+
+    return protocol_mock
+
+
+@pytest.fixture
 def profile_strategy_fixture() -> ProfileStrategy:
     return ProfileStrategy('', '', None, '', {}, {}, {}, {})
+
+
+@pytest.fixture
+def ps_mock(protocol_fixture, mocker, mock_provider_ref) -> MagicMock:
+    """it is a required fixture to include, whether or not it is used explicitly, in or to mock profile"""
+    ps_mock = mocker.patch('astrolabe.profile_strategy.ProfileStrategy', autospec=True)
+    mocker.patch('astrolabe.profile_strategy.profile_strategies', [ps_mock])
+    ps_mock.name = 'FAKE'
+    ps_mock.filter_service_name.return_value = False
+    ps_mock.protocol = protocol_fixture
+    ps_mock.provider_args = {}
+    ps_mock.providers = [mock_provider_ref]
+
+    return ps_mock
 
 
 @pytest.fixture
@@ -33,16 +61,15 @@ def protocol_fixture(dummy_protocol_ref) -> Protocol:
 
 
 @pytest.fixture
-def node_fixture_factory(profile_strategy_fixture, protocol_fixture) -> callable:
+def node_fixture_factory(protocol_fixture, provider_mock) -> callable:
     def _factory() -> Node:
-        nonlocal profile_strategy_fixture, protocol_fixture
-        profile_strategy_fixture = replace(profile_strategy_fixture, protocol=protocol_fixture)
+        nonlocal protocol_fixture
         return Node(
             address='1.2.3.4',
-            profile_strategy=profile_strategy_fixture,
+            profile_strategy_name='bar',
             protocol=protocol_fixture,
             protocol_mux='dummy_mux',
-            provider='dummy_provider',
+            provider=provider_mock.ref(),
             from_hint=False
         )
     return _factory
@@ -122,6 +149,15 @@ def core_astrolabe_d(tmp_path, mocker) -> Path:
 @pytest.fixture
 def builtin_providers() -> List[str]:
     return ['ssh', 'k8s', 'aws']
+
+
+@pytest.fixture
+def provider_mock(mocker, mock_provider_ref) -> MagicMock:
+    provider_mock = mocker.patch('astrolabe.providers.ProviderInterface', autospec=True)
+    provider_mock.ref.return_value = mock_provider_ref
+    mocker.patch('astrolabe.providers.get_provider_by_ref', return_value=provider_mock)
+
+    return provider_mock
 
 
 @pytest.fixture

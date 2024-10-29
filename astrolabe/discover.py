@@ -142,7 +142,7 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
             database.save_node(child)
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
-        logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy.name}, 'yellow')
+        logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy_name}, 'yellow')
         node.errors['TIMEOUT'] = True
     except Exception as exc:
         dexc = DiscoveryException(exc)
@@ -206,7 +206,7 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
         return {}
 
     # PROFILE
-    return await _profile_with_hints(node, node_ref, conn)
+    return await _profile_node(node, node_ref, conn)
 
 
 async def _lookup_service_name(node: Node, provider: providers.ProviderInterface,
@@ -234,7 +234,7 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
 
     # REWRITE/OBFUSCATE
     logs.logger.debug("Discovered name: %s for address %s", service_name, node.address)
-    service_name = node.profile_strategy.rewrite_service_name(service_name, node)
+    service_name = network.rewrite_service_name(service_name, node)
     if constants.ARGS.obfuscate:
         service_name = obfuscate.obfuscate_service_name(service_name)
 
@@ -243,7 +243,7 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
 
 
 # pylint:disable=too-many-locals
-async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Dict[str, Node]:
+async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str, Node]:  # noqa: C901
     provider_ref = node.provider
     address = node.address
     service_name = node.service_name
@@ -256,18 +256,50 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
         return {r: replace(n, children={}, warnings=n.warnings.copy(), errors=n.errors.copy())
                 for r, n in child_cache[cache_key].items()}
 
-    # PROFILE ASYNCIO TASKS
+    # COMPILE PROFILE STRATEGIES
+    tasks = []
+    profile_strategies: List[ProfileStrategy] = []
+    for pfs in profile_strategy.profile_strategies:
+        if provider_ref not in pfs.providers:
+            continue
+        if pfs.protocol.ref in constants.ARGS.skip_protocols:
+            continue
+        if pfs.filter_service_name(service_name):
+            continue
+        profile_strategies.append(pfs)
+    tasks.append(asyncio.wait_for(
+        providers.get_provider_by_ref(provider_ref).profile(address, profile_strategies, connection),
+        timeout=constants.ARGS.timeout
+    ))
+
+    # COMPILE USER DEFINED HINTS
+    for hint in [hint for hint in network.hints(service_name)
+                 if hint.instance_provider not in constants.ARGS.disable_providers]:
+        hint_provider = providers.get_provider_by_ref(hint.instance_provider)
+        tasks.append(asyncio.wait_for(hint_provider.take_a_hint(hint), timeout=constants.ARGS.timeout))
+        profile_strategies.append(
+            replace(
+                profile_strategy.HINT_PROFILE_STRATEGY,
+                child_provider={'type': 'matchAll', 'provider': hint.provider},
+                protocol=hint.protocol
+            )
+        )
+
+    # PROFILE!
     logs.logger.debug(f"Profiling provider: '{provider_ref}' for %s", node_ref)
-    tasks, profile_strategies = _compile_profile_tasks_and_strategies(address, service_name,
-                                                                      providers.get_provider_by_ref(provider_ref),
-                                                                      connection)
+    # tasks = _compile_profile_tasks(address, service_name,
+    #                                providers.get_provider_by_ref(provider_ref),
+    #                                connection)
 
     # HANDLE EXCEPTIONS
     profile_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # HANDLE EXCEPTIONS
     profile_exceptions = [e for e in profile_results if isinstance(e, Exception)]
     if profile_exceptions:
         if isinstance(profile_exceptions[0], asyncio.TimeoutError):
-            print(colored(f"Timeout when attempting to profile service: {service_name}, node_ref: {node_ref}", 'red'))
+            print(colored(f"Timeout when attempting to profile service: {service_name}, node_ref: {node_ref}",
+                          'red'))
             print(colored(f"Connection object: {connection}:", 'yellow'))
             print(colored(vars(connection), 'yellow'))
         print(f"{type(profile_exceptions[0])}({profile_exceptions[0]})")
@@ -275,7 +307,7 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
 
     # PARSE PROFILE RESULTS
     children = {}
-    for node_transports, prof_strategy in [(nts, cs) for nts, cs in zip(profile_results, profile_strategies) if nts]:
+    for node_transports in profile_results:
         for node_transport in node_transports:
             if network.skip_address(node_transport.address):
                 logs.logger.debug("Excluded profile result: `%s`. Reason: address_skipped",
@@ -285,7 +317,7 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
                 logs.logger.debug("Excluded profile result: `%s`. Reason: protocol_mux_skipped",
                                   node_transport.protocol_mux)
                 continue
-            child_ref, child = create_node(prof_strategy, node_transport)
+            child_ref, child = create_node(node_transport)
             children[child_ref] = child
 
     logs.logger.debug("Profiled %d non-excluded children from %d profile results for %s",
@@ -299,55 +331,18 @@ async def _profile_with_hints(node: Node, node_ref: str, connection: type) -> Di
     return nonexcluded_children
 
 
-def _compile_profile_tasks_and_strategies(address: str, service_name: str, provider: providers.ProviderInterface,
-                                          connection: type) -> (List[callable], List[ProfileStrategy]):
-    tasks = []
-    profile_strategies: List[ProfileStrategy] = []
-
-    # PROFILE STRATEGIES
-    for pfs in profile_strategy.profile_strategies:
-        if provider.ref() not in pfs.providers:
-            continue
-        if pfs.protocol.ref in constants.ARGS.skip_protocols:
-            continue
-        if pfs.filter_service_name(service_name):
-            continue
-        profile_strategies.append(pfs)
-        tasks.append(asyncio.wait_for(
-            provider.profile(address, pfs, connection),
-            timeout=constants.ARGS.timeout
-        ))
-
-    # HINTS
-    for hint in [hint for hint in network.hints(service_name)
-                 if hint.instance_provider not in constants.ARGS.disable_providers]:
-        hint_provider = providers.get_provider_by_ref(hint.instance_provider)
-        tasks.append(asyncio.wait_for(hint_provider.take_a_hint(hint), timeout=constants.ARGS.timeout))
-        profile_strategies.append(
-            replace(
-                profile_strategy.HINT_PROFILE_STRATEGY,
-                child_provider={'type': 'matchAll', 'provider': hint.provider},
-                protocol=hint.protocol
-            )
-        )
-
-    return tasks, profile_strategies
-
-
-def create_node(ps_used: ProfileStrategy, node_transport: NodeTransport) -> (str, Node):
-    provider = ps_used.determine_child_provider(node_transport.protocol_mux, node_transport.address)
-    from_hint = constants.PROVIDER_HINT in ps_used.providers
+def create_node(node_transport: NodeTransport) -> (str, Node):
     if constants.ARGS.obfuscate:
         node_transport = obfuscate.obfuscate_node_transport(node_transport)
     node = Node(
-        profile_strategy=ps_used,
-        protocol=ps_used.protocol,
+        profile_strategy_name=node_transport.profile_strategy_name,
+        protocol=node_transport.protocol,
         protocol_mux=node_transport.protocol_mux,
-        provider=provider,
-        containerized=providers.get_provider_by_ref(provider).is_container_platform(),
-        from_hint=from_hint,
+        provider=node_transport.provider,
+        containerized=providers.get_provider_by_ref(node_transport.provider).is_container_platform(),
+        from_hint=node_transport.from_hint,
         address=node_transport.address,
-        service_name=node_transport.debug_identifier if from_hint else None,
+        service_name=node_transport.debug_identifier if node_transport.from_hint else None,
         metadata=node_transport.metadata
     )
 
@@ -357,7 +352,7 @@ def create_node(ps_used: ProfileStrategy, node_transport: NodeTransport) -> (str
     if 0 == node_transport.num_connections:
         node.warnings['DEFUNCT'] = True
 
-    node_ref = '_'.join(x for x in [ps_used.protocol.ref, node_transport.address,
+    node_ref = '_'.join(str(x) for x in [node_transport.protocol.ref, node_transport.address,
                         node_transport.protocol_mux, node_transport.debug_identifier]
                         if x is not None)
     return node_ref, node

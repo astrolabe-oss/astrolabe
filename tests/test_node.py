@@ -35,7 +35,7 @@ class TestNode:
     def test_is_database_case_database_ports(self, node_fixture, port, mocker):
         """Node is a database from it's port/mux(DB port)"""
         # arrange
-        node_fixture.protocol = mocker.patch('astrolabe.node.network.Protocol', is_database=False)
+        node_fixture.protocol = mocker.patch('astrolabe.network.Protocol', is_database=False)
         node_fixture.protocol_mux = port
 
         # act/assert
@@ -45,7 +45,7 @@ class TestNode:
     def test_is_database_case_cache_ports(self, port, node_fixture, mocker):
         """Node is a database from it's port/mux(cache port, cache treated as DB here)"""
         # arrange
-        node_fixture.protocol = mocker.patch('astrolabe.node.network.Protocol', is_database=True)
+        node_fixture.protocol = mocker.patch('astrolabe.network.Protocol', is_database=True)
         node_fixture.protocol_mux = port
 
         # act/assert
@@ -55,7 +55,7 @@ class TestNode:
     def test_is_database_case_nondatabase_ports(self, port, node_fixture, mocker):
         """Node is not a database from non DB ports"""
         # arrange
-        node_fixture.protocol = mocker.patch('astrolabe.node.network.Protocol', is_database=False)
+        node_fixture.protocol = mocker.patch('astrolabe.network.Protocol', is_database=False)
         node_fixture.protocol_mux = port
 
         # act/assert
@@ -64,7 +64,7 @@ class TestNode:
     def test_is_database_case_databasey_protocol(self, node_fixture, mocker):
         """Node is a database because it's protocol is defined as such"""
         # arrange
-        node_fixture.protocol = mocker.patch('astrolabe.node.network.Protocol', is_database=True)
+        node_fixture.protocol = mocker.patch('astrolabe.network.Protocol', is_database=True)
 
         # act/assert
         assert node_fixture.is_database()

@@ -14,12 +14,13 @@ SPDX-License-Identifier: Apache-2.0
 
 import ipaddress
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import NamedTuple, Dict, List
-from termcolor import colored
+from string import Template
 from yaml import safe_load
 
-from astrolabe import constants, config
+from termcolor import colored
+from astrolabe import constants, config, node
 
 
 # using this instead of a namedtuple for ease of json serialization/deserialization
@@ -52,7 +53,9 @@ _ignored_ip_networks = [ipaddress.ip_network(cidr) for cidr in _ignored_cidrs]
 _skip_addresses: List[str] = []
 _skip_service_names: List[str] = []
 _skip_protocol_muxes: List[str] = []
+_service_name_rewrites: Dict[str, str] = {}
 
+PROTOCOL_TCP = Protocol('TCP', 'TCP', True)
 PROTOCOL_SEED = Protocol('SEED', 'Seed', True)
 PROTOCOL_HINT = Protocol('HNT', 'Hint', True)
 PROTOCOL_INVENTORY = Protocol('INV', 'Inventory', True)
@@ -68,6 +71,7 @@ def init():
             configs = _parse_yaml_config(stream, file)
             _parse_protocols(configs)
             _parse_skips(configs)
+            _parse_rewrites(configs)
 
             # hints
             global _hints  # pylint: disable=global-variable-not-assigned
@@ -84,6 +88,15 @@ def init():
 
             # validate
             _validate()
+
+
+def _validate() -> None:
+    if len(_protocols) <= len(_builtin_protocols):
+        print(
+            colored('No protocols defined in astrolabe.d/network.yaml!  Please define protocols before proceeding',
+                    'red')
+        )
+        sys.exit(1)
 
 
 def _parse_yaml_config(stream, file) -> Dict[str, dict]:
@@ -109,6 +122,11 @@ def _parse_skips(configs: Dict[str, dict]) -> None:
     _skip_addresses = configs.get('skips').get('addresses') if configs.get('skips') else []
     _skip_service_names = configs.get('skips').get('service_names') if configs.get('skips') else []
     _skip_protocol_muxes = configs.get('skips').get('protocol_muxes') if configs.get('skips') else []
+
+
+def _parse_rewrites(configs: Dict[str, dict]) -> None:
+    global _service_name_rewrites
+    _service_name_rewrites = configs.get('service-name-rewrites') if configs.get('service-name-rewrites') else {}
 
 
 def skip_address(address: str) -> bool:
@@ -155,10 +173,17 @@ def get_protocol(ref: str) -> Protocol:
         raise exc
 
 
-def _validate() -> None:
-    if len(_protocols) <= len(_builtin_protocols):
-        print(
-            colored('No protocols defined in astrolabe.d/network.yaml!  Please define protocols before proceeding',
-                    'red')
-        )
-        sys.exit(1)
+def rewrite_service_name(service_name: str, node: node.Node) -> str:
+    """
+    Some service names have to be filtered/rewritten.  It uses string.Template
+    to re-write the service name based on node attributes.
+
+    :param service_name: the service name to rewrite, if needed
+    :param node: used to interpolate attributes into the rewrite
+    :return:
+    """
+    for match, rewrite in _service_name_rewrites.items():
+        if service_name and match in service_name:
+            return Template(rewrite).substitute(dict(asdict(node)))
+
+    return service_name

@@ -93,34 +93,6 @@ class TestProfileStrategy:
         # act/assert
         assert profile_strategy_fixture.determine_child_provider('dummy_mux', None) == provider
 
-    # rewrite_service_name()
-    def test_rewrite_service_name_case_no_rewrite(self, profile_strategy_fixture, node_fixture):
-        """Do not rewrite service name if not configured as such"""
-        # arrange
-        profile_strategy_fixture = replace(profile_strategy_fixture, service_name_rewrites={})
-
-        # act/assert
-        assert 'foo' == profile_strategy_fixture.rewrite_service_name('foo', node_fixture)
-
-    def test_rewrite_service_name_case_noninterpolated_rewrite(self, profile_strategy_fixture, node_fixture):
-        """Rewrite service name - simple scenario with no interpolations"""
-        # arrange
-        rewrites = {'foo': 'bar'}
-        profile_strategy_fixture = replace(profile_strategy_fixture, service_name_rewrites=rewrites)
-
-        # act/assert
-        assert 'bar' == profile_strategy_fixture.rewrite_service_name('foo', node_fixture)
-
-    def test_rewrite_service_name_case_interpolated_rewrite(self, profile_strategy_fixture, node_fixture):
-        """Rewrite service name with interpolations"""
-        # arrange
-        rewrites = {'foo': 'bar-$protocol_mux'}
-        profile_strategy_fixture = replace(profile_strategy_fixture, service_name_rewrites=rewrites)
-        node_fixture = replace(node_fixture, protocol_mux='baz')
-
-        # act/assert
-        assert 'bar-baz' == profile_strategy_fixture.rewrite_service_name('foo', node_fixture)
-
 
 # init()
 def test_init_case_inits_network(astrolabe_d, core_astrolabe_d, mocker):  # pylint:disable=unused-argument
@@ -137,13 +109,13 @@ def test_init_case_inits_network(astrolabe_d, core_astrolabe_d, mocker):  # pyli
 
 
 # pylint:disable=too-many-locals,unused-argument
-def test_init_case_wellformed_discoverstrategy_yaml(astrolabe_d, core_astrolabe_d, cli_args_mock, mocker):
+def test_init_case_wellformed_profile_strategy_yaml(astrolabe_d, core_astrolabe_d, cli_args_mock, mocker):
     """Charlotte loads a well formed profile_strategy from yaml into memory"""
     # `astrolabe_d` referenced in test signature only for patching of the tmp dir - fixture unused in test function
     # arrange
-    name, description, providers, protocol, provider_args, child_provider, flter, rewrites = (
+    name, description, providers, protocol, provider_args, child_provider, flter = (
         'Foo', 'Foo ProfileStrategy', ['bar'], 'BAZ', {'command': 'uptime'}, {'type': 'matchAll', 'provider': 'buz'},
-        {'only': ['foo-service']}, {'ugly-foo': 'pretty-foo'}
+        {'only': ['foo-service']}
     )
     cli_args_mock.skip_protocols = []
     stub_protocol = mocker.patch('astrolabe.network.Protocol', ref=protocol)
@@ -159,7 +131,6 @@ protocol: "{protocol}"
 {yaml.dump({'providerArgs': provider_args})}
 {yaml.dump({'childProvider': child_provider})}
 {yaml.dump({'serviceNameFilter': flter})}
-{yaml.dump({'serviceNameRewrites': rewrites})}
 """
     fake_profile_strategy_yaml_file = os.path.join(astrolabe_d, 'Foo.yaml')
     with open(fake_profile_strategy_yaml_file, 'w', encoding='utf8') as open_file:
@@ -178,5 +149,4 @@ protocol: "{protocol}"
     assert provider_args == parsed_cs.provider_args
     assert child_provider == parsed_cs.child_provider
     assert flter == parsed_cs.service_name_filter
-    assert rewrites == parsed_cs.service_name_rewrites
     get_protocol_func.assert_called_once_with('BAZ')

@@ -1,6 +1,6 @@
 import pytest
 
-from astrolabe import providers, node
+from astrolabe import providers, node, constants
 
 
 @pytest.fixture(autouse=True)
@@ -56,38 +56,58 @@ def test_init_case_builtin_providers_disableable(cli_args_mock, builtin_provider
 
 
 @pytest.mark.parametrize('profile_strategy_response', ['', 'foo bar'])
-def test_parse_profile_strategy_response_case_no_data_lines(profile_strategy_response):
+def test_parse_profile_strategy_response_case_no_data_lines(profile_strategy_response, profile_strategy_fixture):
     # arrange/act/assert
-    assert providers.parse_profile_strategy_response(profile_strategy_response, '', '') == []
+    assert providers.parse_profile_strategy_response(profile_strategy_response, '',
+                                                     profile_strategy_fixture) == []
 
 
-def test_parse_profile_strategy_response_case_no_mux():
+def test_parse_profile_strategy_response_case_no_mux(profile_strategy_fixture):
     # arrange
     protocol_mux = 'foo'
     profile_strategy_response = f"address\n{protocol_mux}"
 
     # act/assert
     with pytest.raises(providers.CreateNodeTransportException):
-        providers.parse_profile_strategy_response(profile_strategy_response, '', '')
+        providers.parse_profile_strategy_response(profile_strategy_response, '', profile_strategy_fixture)
 
 
-def test_parse_profile_strategy_response_case_mux_only():
+def test_parse_profile_strategy_response_case_mux_only(ps_mock):
     # arrange
     protocol_mux = 'foo'
     profile_strategy_response = f"mux\n{protocol_mux}"
-    expected = [node.NodeTransport(protocol_mux)]
+    provider = 'FAKE'
+    ps_mock.determine_child_provider.return_value = provider
+    expected = [node.NodeTransport(ps_mock.name, provider, ps_mock.protocol, protocol_mux)]
 
     # act/assert
-    assert providers.parse_profile_strategy_response(profile_strategy_response, '', '') == expected
+    res = providers.parse_profile_strategy_response(profile_strategy_response, '', ps_mock)
+    assert res == expected
 
 
-def test_parse_profile_strategy_response_case_all_fields():
+def test_parse_profile_strategy_response_case_all_fields(ps_mock):
     # arrange
     metadata_1_key, metadata_1_val = 'pet', 'dog'
     mux, address, _id, conns, metadata = 'foo', 'bar', 'baz', '100', f'{metadata_1_key}={metadata_1_val}'
     profile_strategy_response = f"mux address id conns metadata\n" \
                                 f"{mux} {address} {_id} {conns} {metadata}"
-    expected = [node.NodeTransport(mux, address, _id, int(conns), {metadata_1_key: metadata_1_val})]
+    provider = 'FAKE'
+    ps_mock.determine_child_provider.return_value = provider
+    expected = [node.NodeTransport(ps_mock.name, provider, ps_mock.protocol, mux, address,
+                                   False, _id, int(conns), {metadata_1_key: metadata_1_val})]
 
     # act/assert
-    assert providers.parse_profile_strategy_response(profile_strategy_response, '', '') == expected
+    res = providers.parse_profile_strategy_response(profile_strategy_response, '', ps_mock)
+    assert res == expected
+
+
+@pytest.mark.parametrize('provider,from_hint', [(constants.PROVIDER_HINT, True), ('FAKE', False)])
+def test_parse_profile_strategy_response_case_hint(ps_mock, provider, from_hint):
+    # arrange
+    protocol_mux = 'foo'
+    profile_strategy_response = f"mux\n{protocol_mux}"
+    ps_mock.providers = [provider]
+
+    # act/assert
+    res = providers.parse_profile_strategy_response(profile_strategy_response, '', ps_mock)
+    assert res[0].from_hint == from_hint
