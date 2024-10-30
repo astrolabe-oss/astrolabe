@@ -277,19 +277,9 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
                  if hint.instance_provider not in constants.ARGS.disable_providers]:
         hint_provider = providers.get_provider_by_ref(hint.instance_provider)
         tasks.append(asyncio.wait_for(hint_provider.take_a_hint(hint), timeout=constants.ARGS.timeout))
-        profile_strategies.append(
-            replace(
-                profile_strategy.HINT_PROFILE_STRATEGY,
-                child_provider={'type': 'matchAll', 'provider': hint.provider},
-                protocol=hint.protocol
-            )
-        )
 
     # PROFILE!
     logs.logger.debug(f"Profiling provider: '{provider_ref}' for %s", node_ref)
-    # tasks = _compile_profile_tasks(address, service_name,
-    #                                providers.get_provider_by_ref(provider_ref),
-    #                                connection)
 
     # HANDLE EXCEPTIONS
     profile_results = await asyncio.gather(*tasks, return_exceptions=True)

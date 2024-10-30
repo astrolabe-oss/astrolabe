@@ -27,7 +27,7 @@ from termcolor import colored
 from astrolabe import database, constants, logs
 from astrolabe.network import Hint, get_protocol, PROTOCOL_TCP
 from astrolabe.node import NodeTransport, NodeType, Node
-from astrolabe.profile_strategy import ProfileStrategy, INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY
+from astrolabe.profile_strategy import ProfileStrategy, INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY_NAME
 from astrolabe.providers import ProviderInterface, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
 
@@ -198,7 +198,7 @@ class ProviderKubernetes(ProviderInterface):
             sys.exit(1)
 
         return [NodeTransport(
-            profile_strategy_name=HINT_PROFILE_STRATEGY.name,
+            profile_strategy_name=HINT_PROFILE_STRATEGY_NAME,
             provider=hint.provider,
             protocol=hint.protocol,
             protocol_mux=hint.protocol_mux,

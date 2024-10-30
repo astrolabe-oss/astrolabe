@@ -29,7 +29,7 @@ from astrolabe.node import Node, NodeTransport, NodeType
 from astrolabe.network import Hint, PROTOCOL_TCP
 from astrolabe.providers import ProviderInterface
 from astrolabe.plugin_core import PluginArgParser
-from astrolabe.profile_strategy import INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY
+from astrolabe.profile_strategy import INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY_NAME
 
 TAG_NAME_POS = 0
 TAG_VALUE_POS = 1
@@ -67,7 +67,7 @@ class ProviderAWS(ProviderInterface):
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
         instance_address = await self._resolve_instance(hint.service_name)
         return [NodeTransport(
-            profile_strategy_name=HINT_PROFILE_STRATEGY.name,
+            profile_strategy_name=HINT_PROFILE_STRATEGY_NAME,
             provider=hint.provider,
             protocol=hint.protocol,
             protocol_mux=hint.protocol_mux,

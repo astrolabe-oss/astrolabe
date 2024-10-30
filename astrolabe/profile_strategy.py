@@ -86,17 +86,9 @@ class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
 
 profile_strategies: typing.List[ProfileStrategy] = []
 _seed_profile_strategy_child_provider = {'type': 'matchAll', 'provider': constants.PROVIDER_SSH}
-SEED_PROFILE_STRATEGY_NAME = 'SEED'
+SEED_PROFILE_STRATEGY_NAME = 'Seed'
 INVENTORY_PROFILE_STRATEGY_NAME = 'Inventory'
-HINT_PROFILE_STRATEGY = ProfileStrategy(
-    description='Hint Discovery Strategy',
-    name='Hint',
-    protocol=network.PROTOCOL_HINT,
-    providers=[constants.PROVIDER_HINT],
-    provider_args='',
-    child_provider={},
-    service_name_filter={}
-)
+HINT_PROFILE_STRATEGY_NAME = 'Hint'
 
 
 def init():
