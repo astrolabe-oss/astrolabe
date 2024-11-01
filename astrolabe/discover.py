@@ -109,6 +109,7 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
             traceback.print_tb(exc.__traceback__)
             sys.exit(1)
     logs.logger.info("Discovery/profile complete!")
+    print(initial_tree)
 
 
 async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
@@ -323,6 +324,10 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
 def create_node(node_transport: NodeTransport) -> (str, Node):
     if constants.ARGS.obfuscate:
         node_transport = obfuscate.obfuscate_node_transport(node_transport)
+    # We are currently NOT passing through NODE_TYPE becuase Node.node_type defaults to COMPUTE, and while
+    #   we have ways of updating the other NodeTypes - Astrolabe currently doesn't have a way of updating
+    #   Node's to COMPUTE type.
+    # TODO: astrolabe needs a mechanism for determining NodeType other thans defaulting to COMPUTE!!!
     node = Node(
         profile_strategy_name=node_transport.profile_strategy_name,
         protocol=node_transport.protocol,
@@ -332,7 +337,7 @@ def create_node(node_transport: NodeTransport) -> (str, Node):
         from_hint=node_transport.from_hint,
         address=node_transport.address,
         service_name=node_transport.debug_identifier if node_transport.from_hint else None,
-        metadata=node_transport.metadata
+        metadata=node_transport.metadata,
     )
 
     # warnings/errors

@@ -338,7 +338,7 @@ def _new_get_nodes_pending_dnslookup() -> dict[str, Node]:
     # Give all the nodes that have ANY dns name AKA alias and don't have address field
     query = """
     MATCH (n)
-    WHERE n.dns_names IS NOT NULL AND NOT n.address IS NULL
+    WHERE n.dns_names IS NOT NULL AND n.address IS NULL
     RETURN n
     """
     results, _ = platdb.db.cypher_query(query)
