@@ -1,18 +1,19 @@
-import copy
 import datetime
 import pytest
 
-from astrolabe.node import Node, NodeType
-from astrolabe import database
 from corelib import platdb
 
+from astrolabe.node import Node, NodeType
+from astrolabe import database
+
+
 @pytest.fixture
-def mock_compute_node(profile_strategy_fixture, protocol_fixture):
+def mock_compute_node(protocol_fixture):
     return Node(
         address='1.2.3.4',
         containerized=False,
         node_type=NodeType.COMPUTE,
-        profile_strategy=profile_strategy_fixture,
+        profile_strategy_name='Seed',
         protocol=protocol_fixture,
         protocol_mux='mock_mux',
         provider='mock_provider',
@@ -21,8 +22,9 @@ def mock_compute_node(profile_strategy_fixture, protocol_fixture):
         _profile_timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
 
+
 @pytest.fixture
-def mock_compute_node_without_type(profile_strategy_fixture, protocol_fixture):
+def mock_compute_node_without_type(protocol_fixture):
     """This is the same as the mock_compute_node fixture except that this
     fixture does not assign anything to the node_type attribute so it will
     be None. 
@@ -33,7 +35,7 @@ def mock_compute_node_without_type(profile_strategy_fixture, protocol_fixture):
     return Node(
         address='1.2.3.4',
         containerized=False,
-        profile_strategy=profile_strategy_fixture,
+        profile_strategy_name='Seed',
         protocol=protocol_fixture,
         protocol_mux='mock_mux',
         provider='mock_provider',
@@ -42,12 +44,13 @@ def mock_compute_node_without_type(profile_strategy_fixture, protocol_fixture):
         _profile_timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
 
+
 @pytest.fixture
-def mock_deployment_node(profile_strategy_fixture, protocol_fixture):
+def mock_deployment_node(protocol_fixture):
     return Node(
         address='1.2.3.4',
         node_type=NodeType.DEPLOYMENT,
-        profile_strategy=profile_strategy_fixture,
+        profile_strategy_name='Seed',
         protocol=protocol_fixture,
         protocol_mux='mock_mux',
         provider='mock_provider',
@@ -56,17 +59,19 @@ def mock_deployment_node(profile_strategy_fixture, protocol_fixture):
         _profile_timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
 
+
 @pytest.mark.parametrize('node_fixture,node_type', [
-    ('mock_compute_node', platdb.Compute),
-    ('mock_compute_node_without_type', platdb.Compute),
-    ('mock_deployment_node', platdb.Deployment)
+    ('mock_compute_node', NodeType.COMPUTE),
+    ('mock_compute_node_without_type', NodeType.COMPUTE),
+    ('mock_deployment_node', NodeType.DEPLOYMENT)
 ])
 def test_node_to_neomodel(request, node_fixture, node_type):
     node = request.getfixturevalue(node_fixture)
 
-    obj = database._node_to_neomodel(node)
+    obj = database.save_node(node)
 
-    assert isinstance(obj, node_type)
+    assert obj.node_type == node_type
+
 
 def test_neomodel_to_node():
     attrs = {
@@ -81,23 +86,5 @@ def test_neomodel_to_node():
 
     node = database.neomodel_to_node(mock_compute)
 
-    print(node)
-
-
-def test_new_get_node_by_address():
-    node = database._new_get_node_by_address("52.4.186.106")
-
-    print(node)
-
-def test_new_get_nodes_pending_dnslookup():
-    results = database.get_nodes_pending_dnslookup()
-
-def test_node_is_k8s_load_balancer():
-    results = database._new_node_is_k8s_load_balancer("50.19.90.170")
-
-def test_new_get_nodes_unprofiled():
-    results = database.get_nodes_unprofiled()
-
-    print(results)
-
-    
+    assert node
+    assert isinstance(node, Node)

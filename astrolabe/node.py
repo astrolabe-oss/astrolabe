@@ -134,6 +134,9 @@ class Node:
     def get_profile_timestamp(self) -> datetime:
         return self._profile_timestamp
 
+    def get_profile_lock_time(self) -> datetime:
+        return self._profile_lock_time
+
     def aquire_profile_lock(self) -> None:
         self._profile_lock_time = datetime.utcnow()
 
