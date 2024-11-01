@@ -109,7 +109,6 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
             traceback.print_tb(exc.__traceback__)
             sys.exit(1)
     logs.logger.info("Discovery/profile complete!")
-    print(initial_tree)
 
 
 async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):

@@ -1,3 +1,5 @@
+# pylint: disable=unused-argument,too-many-arguments,too-many-positional-arguments
+
 import datetime
 import pytest
 
@@ -60,12 +62,47 @@ def mock_deployment_node(protocol_fixture):
     )
 
 
+@pytest.fixture(autouse=True)
+def mock_neo4j_connection_open(mocker):
+    return mocker.patch.object(database.platdb.Neo4jConnection, 'open', return_value=None)
+
+
+@pytest.fixture
+def mock_application_create_or_update(mocker):
+    mock_application = platdb.Application(name="fixture_app")
+    return mocker.patch.object(platdb.Application, 'create_or_update', return_value=[mock_application])
+
+
+@pytest.fixture
+def mock_compute_create_or_update(mocker):
+    fake_compute = mocker.Mock(spec=platdb.Compute)
+    fake_compute.name = "fixture_compute"
+    fake_compute.platform = "k8s"
+    fake_compute.address = "1.2.3.4"
+
+    return mocker.patch.object(platdb.Compute, 'create_or_update', return_value=[fake_compute])
+
+
+@pytest.fixture
+def mock_deployment_create_or_update(mocker):
+    fake_deployment = platdb.Deployment(name="fixture_deployment", address="1.2.3.4")
+    return mocker.patch.object(platdb.Deployment, 'create_or_update', return_value=[fake_deployment])
+
+
 @pytest.mark.parametrize('node_fixture,node_type', [
     ('mock_compute_node', NodeType.COMPUTE),
     ('mock_compute_node_without_type', NodeType.COMPUTE),
     ('mock_deployment_node', NodeType.DEPLOYMENT)
 ])
-def test_node_to_neomodel(request, node_fixture, node_type):
+def test_node_to_neomodel(
+    request, 
+    node_fixture, 
+    node_type, 
+    mock_neo4j_connection_open, 
+    mock_application_create_or_update,
+    mock_compute_create_or_update,
+    mock_deployment_create_or_update,
+):
     node = request.getfixturevalue(node_fixture)
 
     obj = database.save_node(node)
