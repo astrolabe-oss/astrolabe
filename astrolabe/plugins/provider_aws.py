@@ -170,8 +170,18 @@ class ProviderAWS(ProviderInterface):
         paginator = self.elb_client.get_paginator('describe_load_balancers')
         for page in paginator.paginate():
             for lb in page['LoadBalancers']:  # pylint:disable=invalid-name
+                lb_node = None
                 lb_address = lb['DNSName']
                 name = lb['LoadBalancerName']
+                if not lb_node:  # we only need this once
+                    lb_node = Node(
+                        node_type=NodeType.TRAFFIC_CONTROLLER,
+                        profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
+                        provider='aws',
+                        service_name=name,
+                        aliases=[lb_address]
+                    )
+                    database.save_node(lb_node)
 
                 # find the ASG(s) the load balancer sends requests to.  There is no
                 #  direct link in AWS between load balancer and ASG, so we have to find
@@ -207,6 +217,7 @@ class ProviderAWS(ProviderInterface):
                                 )
                                 asg_nodes[f"ASG_{asg_name}"] = asg_node
                                 database.save_node(asg_node)
+                                database.connect_nodes(lb_node, asg_node)
                                 logs.logger.info("Inventoried 1 AWS ASG node: %s", asg_node.debug_id())
                             instance_info = self.ec2_client.describe_instances(InstanceIds=[instance_id])
                             public_ip = instance_info['Reservations'][0]['Instances'][0].get('PublicIpAddress')
@@ -222,17 +233,6 @@ class ProviderAWS(ProviderInterface):
                             database.save_node(ec2_node)
                             database.connect_nodes(asg_node, ec2_node)
                             logs.logger.info("Inventoried 1 AWS EC2 node: %s", ec2_node.debug_id())
-
-                # Create the ALB Node
-                lb_node = Node(
-                    node_type=NodeType.TRAFFIC_CONTROLLER,
-                    profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
-                    provider='aws',
-                    service_name=name,
-                    aliases=[lb_address],
-                    children=asg_nodes
-                )
-                database.save_node(lb_node)
                 logs.logger.info("Inventoried 1 AWS ALB node: %s", lb_node.debug_id())
 
 
