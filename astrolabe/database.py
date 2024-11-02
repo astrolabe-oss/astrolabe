@@ -97,7 +97,7 @@ def _merge_compute(node: Node, props: dict) -> platdb.PlatDBNode:
 
 def _merge_deployment(node: Node, props: dict) -> platdb.PlatDBNode:  # pylint:disable=unused-argument
     # TODO: this is not always the case anymore... we also have "auto_scaling_group"!
-    props['deployment_type'] = 'k8s_deployment'
+    props['deployment_type'] = 'k8s_deployment' if node.provider == 'k8s' else 'auto_scaling_group'
     deployment = platdb.Deployment.create_or_update(props)[0]
 
     return deployment
