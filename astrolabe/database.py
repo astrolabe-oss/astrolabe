@@ -141,6 +141,10 @@ def connect_nodes(parent_node: Node, child_node: Node):
     raise Exception(f'The parent in connect node is not being handled it is a {parent.__class__}')
 
 
+def get_connections(_: Node) -> Dict[str, Node]:
+    return {}
+
+
 def _load_node_from_neo4j(node: Node) -> Optional[platdb.PlatDBNode]:
     node_type_to_class = {
         NodeType.COMPUTE: platdb.Compute,
