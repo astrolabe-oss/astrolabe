@@ -23,7 +23,7 @@ def close():
 
 def neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
     class_to_node = {
-        platdb.Compute: NodeType.COMPUTE,     
+        platdb.Compute: NodeType.COMPUTE,
         platdb.Deployment: NodeType.DEPLOYMENT,
         platdb.Resource: NodeType.RESOURCE,
         platdb.TrafficController: NodeType.TRAFFIC_CONTROLLER
@@ -204,7 +204,7 @@ def _connect_traffic_controller(parent: platdb.TrafficController, child: platdb.
     raise Exception(  # pylint:disable=broad-exception-raised
         'The child in _connect_traffic_controller is not being handled. '
         f'It is of type {child.__class__} :: {child}'
-    )  
+    )
 
 
 def get_nodes_unprofiled() -> Dict[str, Node]:
@@ -242,7 +242,7 @@ def get_node_by_address(address: str) -> Optional[Node]:
     neomodel_node = results[0][0]
 
     neomodel_classes = {
-        "Compute": platdb.Compute,     
+        "Compute": platdb.Compute,
         "Deployment": platdb.Deployment,
         "Resource": platdb.Resource,
         "TrafficController": platdb.TrafficController
@@ -262,7 +262,7 @@ def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
     """
     res = {}
     neomodel_classes = {
-        "Compute": platdb.Compute,     
+        "Compute": platdb.Compute,
         "Deployment": platdb.Deployment,
         "Resource": platdb.Resource,
         "TrafficController": platdb.TrafficController
@@ -271,13 +271,13 @@ def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
     results, _ = platdb.db.cypher_query(query)
 
     for result in results:
-        if len(result) > 1: 
+        if len(result) > 1:
             raise Exception(  # pylint:disable=broad-exception-raised
                 f'Cannot explain why result in get_nodes_pending_dnslookup has more than 1 element: {result}'
             )
 
         cls: str = list(result[0].labels)[0]
-        dns_name = result[0]['dns_names'][0]  
+        dns_name = result[0]['dns_names'][0]
         neomodel_node = result[0]
         obj = neomodel_classes[cls].inflate(neomodel_node)
         node = neomodel_to_node(obj)
@@ -295,7 +295,7 @@ def node_is_k8s_load_balancer(address: str) -> bool:
     elif len(traffic_controllers) > 1:
         raise Exception(  # pylint:disable=broad-exception-raised
             f"Multiple traffic controllers with address {address} in node is k8s load balancer"
-        ) 
+        )
     else:
         return False
 
