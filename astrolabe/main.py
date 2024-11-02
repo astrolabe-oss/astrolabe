@@ -27,7 +27,7 @@ import configargparse
 from termcolor import colored
 
 from astrolabe import (profile_strategy, network, cli_args, constants, discover, logs, node, plugin_core, providers,
-                       exporters)
+                       exporters, database)
 from astrolabe.plugins import export_json, export_ascii
 
 
@@ -50,6 +50,7 @@ signal.signal(signal.SIGINT, lambda x, y: sys.exit(0))
 
 def main():
     print(f"Hello, {getpass.getuser()}", file=sys.stderr)
+    database.init()
     plugin_core.import_plugin_classes()
     _parse_builtin_args()
     _set_debug_level()
@@ -61,6 +62,7 @@ def main():
     if constants.ARGS.debug:
         constants.PP.pprint(constants.ARGS)
     command.exec()
+    database.close()
     print(f"\nGoodbye, {getpass.getuser()}\n", file=sys.stderr)
 
 

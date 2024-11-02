@@ -7,12 +7,18 @@ from corelib import platdb
 from astrolabe.node import Node, NodeType
 from astrolabe import network, logs
 
-NEO4J_URI = os.getenv('NEO4J_URI')
-NEO4J_USERNAME = os.getenv('NEO4J_USERNAME')
-NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD')
+NEO4J_URI = os.getenv('NEO4J_URI', 'bolt://localhost:7689')
+NEO4J_USERNAME = os.getenv('NEO4J_USERNAME', '')
+NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD', '')
 NEO4J_CONNECTION = platdb.Neo4jConnection(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
-NEO4J_CONNECTION.open()
-# TODO: probably should close the database somewhere
+
+
+def init():
+    NEO4J_CONNECTION.open()
+
+
+def close():
+    NEO4J_CONNECTION.close()
 
 
 def neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
