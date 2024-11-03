@@ -121,7 +121,7 @@ def test_neomodel_to_node():
 
     mock_compute = platdb.Compute(**attrs)
 
-    node = database.neomodel_to_node(mock_compute)
+    node = database._neomodel_to_node(mock_compute)  # pylint:disable=protected-access
 
     assert node
     assert isinstance(node, Node)

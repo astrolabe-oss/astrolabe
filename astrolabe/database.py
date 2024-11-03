@@ -21,16 +21,13 @@ def close():
     NEO4J_CONNECTION.close()
 
 
-def neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
+def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
     class_to_node = {
         platdb.Compute: NodeType.COMPUTE,
         platdb.Deployment: NodeType.DEPLOYMENT,
         platdb.Resource: NodeType.RESOURCE,
         platdb.TrafficController: NodeType.TRAFFIC_CONTROLLER
     }
-
-    # TODO if platdb_node is Compute then fill service_name with child App
-    # Apps might be able to be ignored because they are kinda virtual
 
     node = Node(
         profile_strategy_name=platdb_node.profile_strategy_name,
@@ -48,6 +45,9 @@ def neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
 
     if hasattr(platdb_node, 'dns_names'):
         node.aliases = platdb_node.dns_names
+
+    if hasattr(platdb_node, 'platform'):
+        node.containerized = platdb_node.platform == 'k8s'
 
     return node
 
@@ -81,7 +81,7 @@ def save_node(node: Node) -> Node:
     else:
         raise Exception(f"Unknown node type {node.node_type}!")  # pylint:disable=broad-exception-raised
 
-    return neomodel_to_node(pdb_node)
+    return _neomodel_to_node(pdb_node)
 
 
 def _merge_compute(node: Node, props: dict) -> platdb.PlatDBNode:
@@ -96,7 +96,6 @@ def _merge_compute(node: Node, props: dict) -> platdb.PlatDBNode:
 
 
 def _merge_deployment(node: Node, props: dict) -> platdb.PlatDBNode:  # pylint:disable=unused-argument
-    # TODO: this is not always the case anymore... we also have "auto_scaling_group"!
     props['deployment_type'] = 'k8s_deployment' if node.provider == 'k8s' else 'auto_scaling_group'
     deployment = platdb.Deployment.create_or_update(props)[0]
 
@@ -221,7 +220,7 @@ def get_nodes_unprofiled() -> Dict[str, Node]:
         )
 
         for node in nodes:
-            results[node.element_id_property] = neomodel_to_node(node)
+            results[node.element_id_property] = _neomodel_to_node(node)
 
     return results
 
@@ -254,7 +253,7 @@ def get_node_by_address(address: str) -> Optional[Node]:
 
     obj = neomodel_classes[cls].inflate(neomodel_node)
 
-    return neomodel_to_node(obj)
+    return _neomodel_to_node(obj)
 
 
 def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
@@ -284,7 +283,7 @@ def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
         dns_name = result[0]['dns_names'][0]
         neomodel_node = result[0]
         obj = neomodel_classes[cls].inflate(neomodel_node)
-        node = neomodel_to_node(obj)
+        node = _neomodel_to_node(obj)
 
         res[dns_name] = node
 

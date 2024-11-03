@@ -95,7 +95,6 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
 
     logs.logger.info("All nodes profiled, moving onto exception handling")
     # "HANDLE" EXCEPTIONS
-    #  TODO: Eventually, we will be more elegant about async error handling!
     for coro in coroutines:
         try:
             await coro
