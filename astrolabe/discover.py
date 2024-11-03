@@ -87,6 +87,7 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
         logs.logger.debug("Profiling node %s at depth: %d", node_id, depth)
 
         node.aquire_profile_lock()
+        database.save_node(node)  # save_node() is only to persist lock to Neo4j
         coro = asyncio.create_task(_discover_node(node_id, node, ancestors))
         coroutines.append(coro)
         await asyncio.sleep(0)  # explicitly hand off the loop
@@ -94,7 +95,6 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
 
     logs.logger.info("All nodes profiled, moving onto exception handling")
     # "HANDLE" EXCEPTIONS
-    #  TODO: Eventually, we will be more elegant about async error handling!
     for coro in coroutines:
         try:
             await coro
@@ -128,18 +128,15 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         # if we have inventoried this node already, use that!
         for ref, child in profiled_children.items():
             inventory_node = database.get_node_by_address(child.address)
+
             if inventory_node:
                 merge_node(inventory_node, child)
                 profiled_children[ref] = inventory_node
-            database.connect_nodes(node, profiled_children[ref])
+            else:
+                database.save_node(child)
 
-        # ONLY ITERATE OVER CHILDREN W/ ADDRESS
-        #  TODO: Better error handling for children discovered, for some reason?, without address...
-        children_with_address = [child for child in node.children.values() if child.address]
-
-        for child in children_with_address:
             discovery_ancestors[id(child)] = ancestors + [node.service_name]
-            database.save_node(child)
+            database.connect_nodes(node, profiled_children[ref])
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
         logs.logger.debug({**vars(node), 'profile_strategy': node.profile_strategy_name}, 'yellow')
@@ -181,6 +178,7 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
 
     # LOOKUP SERVICE NAME
     await asyncio.wait_for(_lookup_service_name(node, provider, conn), constants.ARGS.timeout)
+    database.save_node(node)  # This persists the "service name" (Application)
 
     # SKIP SERVICE NAME
     if node.service_name and network.skip_service_name(node.service_name):
@@ -324,6 +322,10 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
 def create_node(node_transport: NodeTransport) -> (str, Node):
     if constants.ARGS.obfuscate:
         node_transport = obfuscate.obfuscate_node_transport(node_transport)
+    # We are currently NOT passing through NODE_TYPE becuase Node.node_type defaults to COMPUTE, and while
+    #   we have ways of updating the other NodeTypes - Astrolabe currently doesn't have a way of updating
+    #   Node's to COMPUTE type.
+    # TODO: astrolabe needs a mechanism for determining NodeType other thans defaulting to COMPUTE!!!
     node = Node(
         profile_strategy_name=node_transport.profile_strategy_name,
         protocol=node_transport.protocol,
@@ -333,7 +335,7 @@ def create_node(node_transport: NodeTransport) -> (str, Node):
         from_hint=node_transport.from_hint,
         address=node_transport.address,
         service_name=node_transport.debug_identifier if node_transport.from_hint else None,
-        metadata=node_transport.metadata
+        metadata=node_transport.metadata,
     )
 
     # warnings/errors
