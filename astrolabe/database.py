@@ -1,6 +1,7 @@
 import os
 
 from typing import Dict, Optional
+from datetime import datetime
 
 from corelib import platdb
 
@@ -210,17 +211,23 @@ def _connect_traffic_controller(parent: platdb.TrafficController, child: platdb.
     )
 
 
-def get_nodes_unprofiled() -> Dict[str, Node]:
+def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:
+    """Query for unprofiled nodes, where the node has never been profiled, or the
+       node has not been profiled **since** the passed in timestamp"""
     node_class = [platdb.Compute, platdb.Deployment, platdb.Resource, platdb.TrafficController]
     results = {}
 
     for cls in node_class:
+        # Add the additional filter for profile_timestamp
         nodes = cls.nodes.filter(
-            platdb.Q(profile_timestamp__isnull=True) & platdb.Q(address__isnull=False)
+            (platdb.Q(profile_timestamp__isnull=True) | platdb.Q(profile_timestamp__lt=since)) &
+            platdb.Q(address__isnull=False)
         )
 
-        for node in nodes:
-            results[node.element_id_property] = _neomodel_to_node(node)
+        for pdb_node in nodes:
+            node = _neomodel_to_node(pdb_node)
+            ref = f"{node.provider}:{node.node_type}:{node.address or ','.join(node.aliases)}"
+            results[ref] = node
 
     return results
 

@@ -15,6 +15,8 @@ SPDX-License-Identifier: Apache-2.0
 import asyncio
 import sys
 import traceback
+
+from datetime import datetime, timezone
 from dataclasses import replace
 from typing import Dict, List, Optional
 
@@ -39,6 +41,7 @@ child_cache: Dict[str, Dict[str, Node]] = {}  # {'provider_ref:service_name': {n
 #  cache clobbering in the event that a node with the same node.id() (provider:address) appears in discovery
 #  and for some reason isn't detected and merged into the existing node
 discovery_ancestors: Dict[int, List[str]] = {}  # {node_memory_address: List[ancestors]}
+current_run_timestamp = datetime.now(timezone.utc)
 
 
 class DiscoveryException(Exception):
@@ -64,7 +67,7 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
     # PROFILE NODES
     unlocked_logging_sleep = 0.1
     unlocked_logging_max_sleep = 1
-    while unprofiled_nodes := database.get_nodes_unprofiled():
+    while unprofiled_nodes := database.get_nodes_unprofiled(current_run_timestamp):
         unlocked_nodes = {n_id: node for n_id, node in unprofiled_nodes.items() if not node.profile_locked()}
         if not unlocked_nodes:
             logs.logger.info("Waiting for %d pending profile jobs to complete, sleeping %.1f",
@@ -86,9 +89,18 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
         depth = len(ancestors)
         logs.logger.debug("Profiling node %s at depth: %d", node_id, depth)
 
-        node.aquire_profile_lock()
-        database.save_node(node)  # save_node() is only to persist lock to Neo4j
-        coro = asyncio.create_task(_discover_node(node_id, node, ancestors))
+        async def discover_node_with_locking(node_id: str, node: Node, ancestors: List[str]):
+            try:
+                node.aquire_profile_lock()
+                database.save_node(node)  # persists lock
+                await _discover_node(node_id, node, ancestors)
+            finally:
+                logs.logger.info("Profile complete for %s, releasing lock", node_id)
+                node.set_profile_timestamp()
+                node.clear_profile_lock()
+                database.save_node(node)  # persists cleared lock
+
+        coro = asyncio.create_task(discover_node_with_locking(node_id, node, ancestors))
         coroutines.append(coro)
         await asyncio.sleep(0)  # explicitly hand off the loop
         await asyncio.sleep(0.1)  # actually give it a sec
@@ -112,9 +124,9 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
 
 async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
     global discovery_ancestors  # pylint:disable=global-variable-not-assigned
-    if node.get_profile_timestamp() is not None:
-        logs.logger.debug("Profile already completed for node: %s:%s (%s)",
-                          node.provider, node.address, node.service_name)
+    if node.profile_complete(current_run_timestamp):
+        logs.logger.info("Profile already completed for node: %s:%s (%s)",
+                         node.provider, node.address, node.service_name)
         return node, {}
 
     depth = len(ancestors)
@@ -146,11 +158,6 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         dexc.node = node
         dexc.ancestors = ancestors
         raise dexc from exc
-    finally:
-        logs.logger.debug("Setting profile timestamp for %s", node_ref)
-        node.set_profile_timestamp()
-        node.clear_profile_lock()
-        database.save_node(node)
 
 
 #  pylint:disable=too-many-return-statements
