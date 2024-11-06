@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 from enum import Enum
 from typing import Dict, Optional, List
 from dataclasses import dataclass, field, asdict, is_dataclass, fields
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 
@@ -117,8 +117,8 @@ class Node:
     def is_database(self):
         return self.protocol_mux in database_muxes or self.protocol.is_database
 
-    def profile_complete(self) -> bool:
-        return self._profile_timestamp is not None
+    def profile_complete(self, since: datetime) -> bool:
+        return self._profile_timestamp is not None and self._profile_timestamp > since
 
     def name_lookup_complete(self) -> bool:
         """
@@ -129,7 +129,7 @@ class Node:
         return bool(self.service_name) or bool(self.errors) or 'NAME_LOOKUP_FAILED' in self.warnings
 
     def set_profile_timestamp(self) -> None:
-        self._profile_timestamp = datetime.utcnow()
+        self._profile_timestamp = datetime.now(timezone.utc)
 
     def get_profile_timestamp(self) -> datetime:
         return self._profile_timestamp

@@ -68,18 +68,19 @@ async def test_export_tree_case_child(tree_stubbed_with_child, capsys):
 
 
 # wait_for: wait for service name to print
-@pytest.mark.asyncio
-async def test_export_tree_case_discover_not_complete(tree_stubbed, capsys, mocker):
-    """export should not happen for a node unless `profile_complete()` returns True"""
-    # arrange
-    seed = tree_stubbed[list(tree_stubbed)[0]]
-    mocker.patch.object(seed, 'profile_complete', return_value=False)
-
-    # act/assert
-    with pytest.raises(asyncio.TimeoutError):
-        await _helper_export_tree_with_timeout(tree_stubbed)
-    captured = capsys.readouterr()
-    assert seed.service_name not in captured
+# TODO: Removed, because I think during astrolabe rewrite we removed concurrent export for ascii
+# @pytest.mark.asyncio
+# async def test_export_tree_case_discover_not_complete(tree_stubbed, capsys, mocker):
+#     """export should not happen for a node unless `profile_complete()` returns True"""
+#     # arrange
+#     seed = tree_stubbed[list(tree_stubbed)[0]]
+#     mocker.patch.object(seed, 'profile_complete', return_value=False)
+#
+#     # act/assert
+#     with pytest.raises(asyncio.TimeoutError):
+#         await _helper_export_tree_with_timeout(tree_stubbed)
+#     captured = capsys.readouterr()
+#     assert seed.service_name not in captured
 
 
 @pytest.mark.asyncio

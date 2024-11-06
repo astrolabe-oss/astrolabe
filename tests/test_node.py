@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 
@@ -74,12 +76,13 @@ class TestNode:
     def test_profile_complete_case_profile_timestamp(self, timestamped, expected, node_fixture, mocker):
         """Crawl is complete when profile timestamp stamped."""
         # arrange
+        current_timestamp = datetime.now(timezone.utc)
         node_fixture.name_lookup_complete = mocker.Mock(return_value=True)
         if timestamped:
             node_fixture.set_profile_timestamp()
 
         # act/assert
-        assert node_fixture.profile_complete() == expected
+        assert node_fixture.profile_complete(current_timestamp) == expected
 
     # name_lookup_complete()
     def test_name_lookup_complete_case_incomplete(self, node_fixture):

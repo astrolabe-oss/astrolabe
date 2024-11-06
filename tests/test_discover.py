@@ -6,12 +6,18 @@ Notes:
         to be valid since the fixture code itself will patch the profile_strategy object into the code flow in the test
 """
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 import pytest
 
 from astrolabe.providers import TimeoutException
 from astrolabe import database, discover, node, providers, constants
 from . import _fake_database
+
+
+@pytest.fixture
+def utcnow():
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture(autouse=True)
@@ -103,7 +109,7 @@ async def test_discover_case_respects_profile_locking(tree, provider_mock):
     (Exception, True)
 ])
 @pytest.mark.asyncio
-async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, causes_exit):
+async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, causes_exit, utcnow):
     """Whether profile is success, causes a non-exiting exception, or an exiting exception
         profile_complete() should always be marked!"""
     # arrange
@@ -111,7 +117,7 @@ async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, cau
     provider_mock.open_connection.side_effect = exc
 
     # pre-assert
-    assert not node1.profile_complete()
+    assert not node1.profile_complete(utcnow)
 
     # act
     if causes_exit:
@@ -122,7 +128,7 @@ async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, cau
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert node1.profile_complete()
+    assert node1.profile_complete(utcnow)
 
 
 # Calls to ProviderInterface::open_connection
@@ -148,7 +154,7 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
 
 
 @pytest.mark.asyncio
-async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, provider_mock, mocker):
+async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, provider_mock, mocker, utcnow):
     """If a node should be skipped due to protocol_mux, we do not even open the connection and we set an error."""
     # arrange
     skip_function = mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
@@ -158,7 +164,7 @@ async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, pro
 
     # assert
     assert 'CONNECT_SKIPPED' in list(tree.values())[0].errors
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None
     provider_mock.open_connection.assert_not_called()
     provider_mock.lookup_name.assert_not_called()
@@ -167,7 +173,7 @@ async def test_discover_case_open_connection_handles_skip_protocol_mux(tree, pro
 
 
 @pytest.mark.asyncio
-async def test_discover_case_open_connection_handles_timeout_exception(tree, provider_mock):
+async def test_discover_case_open_connection_handles_timeout_exception(tree, provider_mock, utcnow):
     """Respects the contractual TimeoutException or ProviderInterface.  If thrown we set TIMEOUT error
     but do not stop discovering"""
     # arrange
@@ -177,7 +183,7 @@ async def test_discover_case_open_connection_handles_timeout_exception(tree, pro
     await discover.discover(tree, [])
 
     assert 'TIMEOUT' in list(tree.values())[0].errors
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None
     provider_mock.lookup_name.assert_not_called()
     provider_mock.profile.assert_not_called()
@@ -366,7 +372,7 @@ async def test_discover_case_profile_handles_exceptions(tree, provider_mock, cli
 
 # handle Cycles
 @pytest.mark.asyncio
-async def test_discover_case_cycle(tree, provider_mock):
+async def test_discover_case_cycle(tree, provider_mock, utcnow):
     """Cycles should be detected, name lookup should still happen for them, but profile should not"""
     # arrange
     cycle_service_name = 'foops_i_did_it_again'
@@ -377,7 +383,7 @@ async def test_discover_case_cycle(tree, provider_mock):
 
     # assert
     assert 'CYCLE' in list(tree.values())[0].errors
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None
     provider_mock.lookup_name.assert_called_once()
     provider_mock.profile.assert_not_called()
@@ -603,7 +609,7 @@ async def test_discover_case_respect_cli_disable_providers(tree, provider_mock, 
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args_mock):
+async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args_mock, utcnow):
     """We should not profile if max-depth is exceeded"""
     # arrange
     cli_args_mock.max_depth = 0
@@ -614,7 +620,7 @@ async def test_discover_case_respect_cli_max_depth(tree, provider_mock, cli_args
 
     # assert
     provider_mock.profile.assert_not_called()
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None
 
 
@@ -679,7 +685,7 @@ async def test_discover_case_respect_network_service_name_rewrite(tree, provider
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_network_skip_protocol_mux(tree, provider_mock, mocker):
+async def test_discover_case_respect_network_skip_protocol_mux(tree, provider_mock, mocker, utcnow):
     """Skip protocol mux is respected for network"""
     # arrange
     skip_function = mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
@@ -692,12 +698,12 @@ async def test_discover_case_respect_network_skip_protocol_mux(tree, provider_mo
     provider_mock.lookup_name.assert_not_called()
     provider_mock.profile.assert_not_called()
     skip_function.assert_called_once_with(list(tree.values())[0].protocol_mux)
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_network_skip_address(tree, provider_mock, mocker):
+async def test_discover_case_respect_network_skip_address(tree, provider_mock, mocker, utcnow):
     """Skip address is respected for network"""
     # arrange
     skip_function = mocker.patch('astrolabe.network.skip_address', return_value=True)
@@ -710,12 +716,12 @@ async def test_discover_case_respect_network_skip_address(tree, provider_mock, m
     provider_mock.lookup_name.assert_not_called()
     provider_mock.profile.assert_not_called()
     skip_function.assert_called_once_with(list(tree.values())[0].address)
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None
 
 
 @pytest.mark.asyncio
-async def test_discover_case_respect_network_skip_service_name(tree, provider_mock, mocker):
+async def test_discover_case_respect_network_skip_service_name(tree, provider_mock, mocker, utcnow):
     """Skip service name is respected for network"""
     # arrange
     service_name = 'foo_name'
@@ -729,5 +735,5 @@ async def test_discover_case_respect_network_skip_service_name(tree, provider_mo
     provider_mock.lookup_name.assert_called_once()
     provider_mock.profile.assert_not_called()
     skip_function.assert_called_once_with(service_name)
-    assert list(tree.values())[0].profile_complete()
+    assert list(tree.values())[0].profile_complete(utcnow)
     assert list(tree.values())[0].get_profile_timestamp() is not None

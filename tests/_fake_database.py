@@ -1,5 +1,6 @@
 # _fake_database.py... a fake database module used for testing patching
 
+from datetime import datetime
 from typing import Dict, Optional
 
 from astrolabe.node import Node, NodeType, merge_node
@@ -62,11 +63,11 @@ def get_connections(node: Node) -> Optional[Dict[str, Node]]:
     return _node_connections[key]
 
 
-def get_nodes_unprofiled() -> Dict[str, Node]:
+def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:
     return {
         n_id: node
         for n_id, node in _node_primary_index.items()
-        if not node.profile_complete()
+        if not node.profile_complete(since)
         and node.address is not None
     }
 

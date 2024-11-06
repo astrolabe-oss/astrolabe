@@ -82,29 +82,28 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
                 nodes_to_export.pop(node_ref)
                 continue
 
-            if node.profile_complete():
-                # this sleep allows human eyes to comprehend output
-                if print_slowly_for_humans:
-                    await asyncio.sleep(_get_sleep_for_humans_seconds())
-                is_last_sibling = 1 == len(nodes_to_export)
+            # this sleep allows human eyes to comprehend output
+            if print_slowly_for_humans:
+                await asyncio.sleep(_get_sleep_for_humans_seconds())
+            is_last_sibling = 1 == len(nodes_to_export)
 
-                # set up recursive children's parent back-reference
-                childrens_ancestors = parents.copy()  # copy isolates branch parents
-                childrens_ancestors.append(Ancestor(is_last_sibling, len(node.protocol.ref)))
+            # set up recursive children's parent back-reference
+            childrens_ancestors = parents.copy()  # copy isolates branch parents
+            childrens_ancestors.append(Ancestor(is_last_sibling, len(node.protocol.ref)))
 
-                # print prefixes
-                print_prefix = _export_node_display_prefix(parents)
-                error_print_prefix = _export_node_display_prefix(childrens_ancestors)
+            # print prefixes
+            print_prefix = _export_node_display_prefix(parents)
+            error_print_prefix = _export_node_display_prefix(childrens_ancestors)
 
-                # export
-                _export_node(node, depth, print_prefix, is_last_sibling, out)
-                if constants.ARGS.export_ascii_verbose:
-                    _export_node_errs_warns(node, error_print_prefix, out)
+            # export
+            _export_node(node, depth, print_prefix, is_last_sibling, out)
+            if constants.ARGS.export_ascii_verbose:
+                _export_node_errs_warns(node, error_print_prefix, out)
 
-                nodes_to_export.pop(node_ref)
+            nodes_to_export.pop(node_ref)
 
-                if len(childrens_ancestors) <= constants.ARGS.max_depth and node.children:
-                    await export_tree(node.children, childrens_ancestors, out, print_slowly_for_humans)
+            if len(childrens_ancestors) <= constants.ARGS.max_depth and node.children:
+                await export_tree(node.children, childrens_ancestors, out, print_slowly_for_humans)
 
         # this sleep prevents CPU hoarding
         if (len(nodes_to_export)) > 0:
