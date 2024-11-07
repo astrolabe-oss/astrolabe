@@ -1,4 +1,5 @@
 # Astrolabe
+![256px-Astrolabe](https://github.com/user-attachments/assets/d4f280d6-8492-46de-bf45-5dfcde9d8270)
 
 Configure Astrolabe to discover your network topology by introspecting runtime environments.
 
@@ -41,6 +42,7 @@ foo [seed] (10.1.0.26)
  |          |--NSQ--? {ERR:NULL_ADDRESS} UNKNOWN [some-multiplexor] (None)
 ```
 
+<img width="1099" alt="neo4j_bolt___localhost_7689_neo4j_-_Neo4j_Browser" src="https://github.com/user-attachments/assets/acd0e09e-3edf-4238-809d-a13d1356847d">
 
 #### 3 Run in `export` mode
 Note: unlike the `discover` command, `export` is written to stand alone and parse the default json file in `outputs/.lastrun.json` it requires no arguments by default.
