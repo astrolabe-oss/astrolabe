@@ -5,9 +5,6 @@ Description:
 Various profile strategies are loaded from CustomNameProfileStrategy.yaml files and loaded in the objects
 for use in profiling and discovering nodes in the network.
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

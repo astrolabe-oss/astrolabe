@@ -4,9 +4,6 @@ Module Name: obfuscate
 Description:
 Code for obfuscate service names during export
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

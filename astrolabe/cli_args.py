@@ -4,9 +4,6 @@ Module Name: cli_args
 Description:
 Defines the cli arg parsers for use by command line interface
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

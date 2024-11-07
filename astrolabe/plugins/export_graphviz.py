@@ -4,9 +4,6 @@ Module Name: export_graphviz
 Description:
 Exports to graphviz dot file format
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 

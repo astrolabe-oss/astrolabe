@@ -1,4 +1,13 @@
-# _fake_database.py... a fake database module used for testing patching
+"""
+Module Name: _fake_database
+
+Description:
+A fake in memory database for testing porpoises
+
+License:
+SPDX-License-Identifier: Apache-2.0
+"""
+
 
 from datetime import datetime
 from typing import Dict, Optional

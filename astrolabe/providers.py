@@ -6,9 +6,6 @@ In astrolable, "providers" can be though of as "Node Providers" - external data 
 which we will query and connect to for discovering and profiling nodes.  Providers code is defined here which builds
  upon the plugin core interface.  Actual provider code is found in the ./plugins directory
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

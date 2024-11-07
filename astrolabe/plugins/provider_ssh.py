@@ -8,9 +8,6 @@ Assumptions:
 - A Jump/Bastion server is used
 - The Jump/Bastion server is configured in an ssh config file per host, default ~/.ssh/config
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

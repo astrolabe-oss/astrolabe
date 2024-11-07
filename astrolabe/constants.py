@@ -4,9 +4,6 @@ Module Name: constants
 Description:
 Constants and globals shared across modules
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

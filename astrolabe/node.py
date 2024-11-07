@@ -4,9 +4,6 @@ Module Name: node
 Description:
 This module contains the class definitions for nodes and the NodeTransport data transport object
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

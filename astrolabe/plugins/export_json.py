@@ -4,9 +4,6 @@ Module Name: export_json
 Description:
 Exports to tree json file
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

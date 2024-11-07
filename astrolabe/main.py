@@ -5,9 +5,6 @@ Description:
 Main module for astrolabe.  Contains main() entrypoint for astrolabe as well as high level command arguments
 and the recipe for loading cli args and executing the specified command.
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

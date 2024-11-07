@@ -4,9 +4,6 @@ Module Name: export_ascii
 Description:
 Exports nodes in ascii tree format to the STDOUT
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

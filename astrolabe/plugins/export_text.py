@@ -4,9 +4,6 @@ Module Name: export_text
 Description:
 Exports to basic text output
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

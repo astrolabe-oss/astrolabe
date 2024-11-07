@@ -4,9 +4,6 @@ Module Name: logs
 Description:
 Logging!
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

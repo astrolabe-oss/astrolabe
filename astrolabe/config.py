@@ -1,3 +1,12 @@
+"""
+Module Name: config
+
+Description:
+Read and parse astrolabe specific config files such as network.yaml and Profile Strategy files
+
+License:
+SPDX-License-Identifier: Apache-2.0
+"""
 from pathlib import Path
 
 ROOT_DIR = Path.cwd()

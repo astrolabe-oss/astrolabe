@@ -5,9 +5,6 @@ Description:
 Exporters are defined here which builds upon the plugin core interface.  Actual exporter code is found in the
 ./plugins directory
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

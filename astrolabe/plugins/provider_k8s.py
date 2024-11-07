@@ -9,8 +9,6 @@ Assumptions:
 - This 1 and only 1 kubernetes cluster is currently configured and authenticated as the active context in kubectl
 - Services in kubernetes cluster can be identified by name with a user configured kubernetes label
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
 
 License:
 SPDX-License-Identifier: Apache-2.0

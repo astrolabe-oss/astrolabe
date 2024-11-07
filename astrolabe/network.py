@@ -5,9 +5,6 @@ Description:
 The network.yaml config file is loaded here - where users configure the various protocols, hints and skips
 of their known network map.
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

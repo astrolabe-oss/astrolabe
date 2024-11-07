@@ -10,9 +10,6 @@ Assumptions:
 using the user specific --aws-profile argument
 - Instances of a service can be looked up in AWS by querying for user specified tag
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

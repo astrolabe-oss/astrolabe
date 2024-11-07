@@ -4,9 +4,6 @@ Module Name: export_pprint
 Description:
 Exports pprint of the internal data structure tree
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

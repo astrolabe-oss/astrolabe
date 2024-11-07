@@ -4,9 +4,6 @@ Module Name: plugin_core
 Description:
 Base class and fuctionality is defined for plugins - which is used by providers and exporters.
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """

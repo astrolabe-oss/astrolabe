@@ -5,9 +5,6 @@ Description:
 The high level async, iterative discovering functionality of astrolabe/discover. Here is where we iteratively
 profile nodes, compile async tasks, lookup node names, and parse children until complete.
 
-Copyright:
-Copyright 2024 Magellanbot, Inc
-
 License:
 SPDX-License-Identifier: Apache-2.0
 """
