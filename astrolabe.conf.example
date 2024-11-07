@@ -1,0 +1,14 @@
+; core
+timeout = 180
+ssh-concurrency = 10
+; ssh, name discovery - for example if you store you app name in an env var MYAPP_NAME
+ssh-name-command = echo $MYAPP_NAME
+; aws provider - for example if your app name is stored in the "App" tag, and you only want the dev environment
+aws-service-name-tag = App
+aws-tag-filters = [Environment=development]
+; k8s provider - for example if you have labels for your app name as "app" and you only want the default namespace
+k8s-namespace = default
+k8s-label-selectors = [environment=dev]
+k8s-service-name-label = app
+; export
+export-ascii-verbose

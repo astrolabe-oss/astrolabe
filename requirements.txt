@@ -1,2 +1,2 @@
--e ../corelib 
+git+https://github.com/astrolabe-oss/corelib.git@main#egg=corelib
 -e ".[test]"
