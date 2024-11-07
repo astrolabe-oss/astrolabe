@@ -3,29 +3,32 @@
 Configure Astrolabe to discover your network topology by introspecting runtime environments.
 
 ## Prerequisites
-* python 3.8 available at `/usr/local/env python3`
-  * python >= 3.7 was chosen in order to use python dataclasses
-  * python >= 3.8 was chosen in order to use unittest.mock AsyncMock
+* python 3.10 or greater available at `/usr/local/env python3`
+* Neo4J Installed
+  * NEO4J environment variables required for access:
+    * NEO4J_URL
+    * NEO4J_USERNAME
+    * NEO4J_PASSWORD
+* AWS CLI Login authenticated
+* Kubectl login authenticated
+* SSH login setup for SSH-able EC2 machines w/out specifying key or password (using ssh-config file and ssh-add)
 
-## Configure Astrolabe in 7 easy steps!
-1. Review the example project in [examples/example-project](examples/example-project)
-1. Start a new project / empty folder
-    1. `mkdir new_project && cd new_project`
-    1. `venv'
-    1. `echo "git+ssh://git@github.com/guruai/astrolabe.git#egg=astrolabe" > requirements.txt`
-    1. `pip install -r requirements.txt`
-1. Configure astrolabe.d - the configuration folder with which you will describe your network graph to astrolabe
-    1. `mkdir astrolabe.d`
-    1. Create your `...ProfileStrategy.yaml` file(s).
-        1. Please see [examples/ExampleSSHProfileStrategy.yaml](examples/ExampleSSHDiscoveryStrategy.yaml) for example/documentation.
-    2. Crate `web.yaml` file  
-        1. "Providers", "skips" , and "Hints" are all defined in [examples/network.yaml](examples/web.yaml). 
+## Limitations
+* Currently assumes usaged of AWS EC2 and also kubernetes (Planned improvement in roadmap)
+* Currently only supports 1 AWS account (Planned improvement in roadmap)
+* Currently only supports 1 kubernetes cluster (Planned improvement in roadmap)
+  
+
+## Configure
+The following arguments are required to run astrolabe.  These may be specified in a config file, per the [example conf file](./astrolabe.conf.example) or passed as CLI args.
+1. Required agruments
+   1.  `--aws-service-name-tag`: Assumed that the name of your service/application is tagged in AWS by this tag name
+   2.  `--k8s-namespace`: Assumes one kubernetes cluster and namespace, configured here
+   3.  `--ssh-name-command`: Astrolabe looks for the name of a service within a VM by executing this shell command which you will specify here
+   4.  `--seeds`: A seed node or nodes to start discovery with.
 1. Run `astrolabe --help` for all available commands and `astrolabe discover --help` and `astrolabe export --help` for command specific configuration.
-1. Disable builtin provider with the argument `--disable-providers ssh aws k8s`
-1. Set any configurations which are known to be required for every run in `discover.conf` see [./examples/astrolabe.conf.example](./examples/discover.conf.example)
-  1. Hint: `astrolabe.conf` is always inherited, but you can create different profiles such as `astrolabe.prod.conf` and reference them with the `--config-file` arg
 
-Note: unlike the `discover` command, `export` is written to stand alone and parse the default json file in `outputs/.lastrun.json` it requires no arguments by default.
+
 
 ## Use
 #### 1 Run in `discover` mode:
@@ -40,6 +43,7 @@ foo [seed] (10.1.0.26)
 
 
 #### 3 Run in `export` mode
+Note: unlike the `discover` command, `export` is written to stand alone and parse the default json file in `outputs/.lastrun.json` it requires no arguments by default.
 It will by default render the "last run" automatically dumped to .lastrun.json.  Or you can pass in `-f` to load a specific file.  The default exporter is `ascii` unless a different exporter is passed in, as in `--output graphviz`
 
 ``` 
@@ -50,6 +54,12 @@ foo [seed] (10.1.0.26)
  |          |--NSQ--? {ERR:NULL_ADDRESS} UNKNOWN [some-multiplexor] (None)
 ...
 ```
+
+## Advanced Usage - Profile Strategies
+* TO BE COMPLETED
+
+## Advanced Usage - Provider/Plugin Development
+* TO BE COMPLETED
 
 ## Help
 ```
