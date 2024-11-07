@@ -62,6 +62,7 @@ PROTOCOL_INVENTORY = Protocol('INV', 'Inventory', True)
 _builtin_protocols = {PROTOCOL_SEED, PROTOCOL_HINT}
 _protocols['SEED'] = PROTOCOL_SEED
 _protocols['HNT'] = PROTOCOL_HINT
+_protocols['TCP'] = PROTOCOL_TCP
 
 
 def init():

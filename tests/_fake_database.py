@@ -52,14 +52,14 @@ def connect_nodes(node1: Node, node2: Node):
         children = {}
         _node_connections[parent_key] = children
     children = _node_connections[parent_key]
-    child_key = f"{node2.provider}:{node2.address}"
+    child_key = f"{node2.provider}:{node2.address}:{node2.protocol_mux}"
     children[child_key] = node2
 
 
 def get_connections(node: Node) -> Optional[Dict[str, Node]]:
     key = str(id(node))
     if key not in _node_connections:
-        return None
+        return {}
     return _node_connections[key]
 
 

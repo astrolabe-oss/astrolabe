@@ -1,5 +1,6 @@
 import json
 import os
+import datetime
 from dataclasses import replace
 from types import SimpleNamespace
 import pytest
@@ -28,23 +29,29 @@ def test_load_case_args_primitives(tmp_path, mocker):
     mocker.patch('astrolabe.constants.ARGS', max_depth=100)
     max_depth = 42
     stub_tree = {"foo": ["bar"]}
+    stub_dt = "2024-11-06T22:26:28.507065+00:00"
     tmp_file = os.path.join(tmp_path, 'stub-load.json')
     stub_json = '''
 {
+  "run_timestamp": {
+    "__type__": "datetime",
+    "value": "%s"
+  },
   "args": {
     "max_depth": "%s"
   },
   "tree": %s
 }
-''' % (max_depth, json.dumps(stub_tree))
+''' % (stub_dt, max_depth, json.dumps(stub_tree))
     with open(tmp_file, 'w', encoding='utf8') as open_file:
         open_file.write(stub_json)
 
     # act
-    tree = export_json.load(tmp_file)
+    the_tree, dt = export_json.load(tmp_file)
 
     # assert
-    assert stub_tree == tree
+    assert stub_tree == the_tree
+    assert datetime.datetime.fromisoformat("2024-11-06T22:26:28.507065+00:00") == dt
     assert constants.ARGS.max_depth == max_depth
 
 
@@ -60,8 +67,13 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
     # - node
     node_ref, node_prov, node_mux, node_hint, node_address, node_service_name, node_children, node_warn, node_err = \
         ('a_ref', 'a_prov', 'a_mux', True, 'an_add', 'a_name', {'foo': 'child'}, {'bar': True}, {'baz': True})
+    stub_ts = "2024-11-06T22:26:28.507065+00:00"
     stub_json = f"""
 {{
+  "run_timestamp": {{
+    "__type__": "datetime",
+    "value": "{stub_ts}"
+  }},
   "args": {{
     "max_depth": 0,
     "skip_nonblocking_grandchildren": false
@@ -93,7 +105,7 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
         open_file.write(stub_json)
 
     # act
-    tree = export_json.load(tmp_file)
+    tree, ts = export_json.load(tmp_file)
 
     # assert
     # - Node()
@@ -117,6 +129,8 @@ def test_load_case_objects(cli_args_fixture, tmp_path):
     assert loaded_protocol.blocking == proto_blocking
     assert loaded_protocol.is_database == proto_is_database
     assert isinstance(loaded_node.protocol, network.Protocol)
+    # run timestamp
+    assert datetime.datetime.fromisoformat(stub_ts) == ts
 
 
 def test_dump_case_args(tmp_path):

@@ -16,13 +16,13 @@ import asyncio
 import sys
 import traceback
 
-from datetime import datetime, timezone
 from dataclasses import replace
 from typing import Dict, List, Optional
 
 from termcolor import colored
 
 from astrolabe import database, profile_strategy, network, constants, logs, obfuscate, providers
+from astrolabe.constants import CURRENT_RUN_TIMESTAMP
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.providers import ProviderInterface
 from astrolabe.node import Node, NodeTransport, merge_node
@@ -41,7 +41,6 @@ child_cache: Dict[str, Dict[str, Node]] = {}  # {'provider_ref:service_name': {n
 #  cache clobbering in the event that a node with the same node.id() (provider:address) appears in discovery
 #  and for some reason isn't detected and merged into the existing node
 discovery_ancestors: Dict[int, List[str]] = {}  # {node_memory_address: List[ancestors]}
-current_run_timestamp = datetime.now(timezone.utc)
 
 
 class DiscoveryException(Exception):
@@ -52,22 +51,22 @@ class DiscoveryException(Exception):
 
 
 # pylint:disable=too-many-locals
-async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
+async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):
     global discovery_ancestors  # pylint:disable=global-variable-not-assigned
     # SEED DATABASE
-    for ref, node in initial_tree.items():
+    for ref, node in seeds.items():
         logs.logger.info("Seeding database with node: %s", node.debug_id())
         # POPULATE ANCESTRY LIST
         discovery_ancestors[id(node)] = initial_ancestors
         # REBUILD TREE NODES TO MERGE W/ INVENTORY
         saved_node = database.save_node(node)
-        initial_tree[ref] = saved_node
+        seeds[ref] = saved_node
     coroutines = []
 
     # PROFILE NODES
     unlocked_logging_sleep = 0.1
     unlocked_logging_max_sleep = 1
-    while unprofiled_nodes := database.get_nodes_unprofiled(current_run_timestamp):
+    while unprofiled_nodes := database.get_nodes_unprofiled(constants.CURRENT_RUN_TIMESTAMP):
         unlocked_nodes = {n_id: node for n_id, node in unprofiled_nodes.items() if not node.profile_locked()}
         if not unlocked_nodes:
             logs.logger.info("Waiting for %d pending profile jobs to complete, sleeping %.1f",
@@ -99,6 +98,10 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
                 node.set_profile_timestamp()
                 node.clear_profile_lock()
                 database.save_node(node)  # persists cleared lock
+                # merge back the discovered node to seeds, for export processing
+                node_ref = f"{node.provider}:{node.address}"
+                if node_ref in seeds:
+                    merge_node(seeds[node_ref], node)
 
         coro = asyncio.create_task(discover_node_with_locking(node_id, node, ancestors))
         coroutines.append(coro)
@@ -124,7 +127,7 @@ async def discover(initial_tree: Dict[str, Node], initial_ancestors: List[str]):
 
 async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
     global discovery_ancestors  # pylint:disable=global-variable-not-assigned
-    if node.profile_complete(current_run_timestamp):
+    if node.profile_complete(CURRENT_RUN_TIMESTAMP):
         logs.logger.info("Profile already completed for node: %s:%s (%s)",
                          node.provider, node.address, node.service_name)
         return node, {}
@@ -140,9 +143,9 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         # if we have inventoried this node already, use that!
         for ref, child in profiled_children.items():
             inventory_node = database.get_node_by_address(child.address)
-
             if inventory_node:
                 merge_node(inventory_node, child)
+                database.save_node(inventory_node)
                 profiled_children[ref] = inventory_node
             else:
                 database.save_node(child)

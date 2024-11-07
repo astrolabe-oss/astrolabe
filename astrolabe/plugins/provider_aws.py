@@ -173,16 +173,19 @@ class ProviderAWS(ProviderInterface):
                 lb_node = None
                 lb_address = lb['DNSName']
                 name = lb['LoadBalancerName']
+                listeners = self.elb_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])['Listeners']
+                lb_port = listeners[0]['Port'] if listeners else None
                 if not lb_node:  # we only need this once
                     lb_node = Node(
                         node_type=NodeType.TRAFFIC_CONTROLLER,
                         profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                         provider='aws',
+                        protocol=PROTOCOL_TCP,
+                        protocol_mux=lb_port,
                         service_name=name,
                         aliases=[lb_address]
                     )
                     database.save_node(lb_node)
-
                 # find the ASG(s) the load balancer sends requests to.  There is no
                 #  direct link in AWS between load balancer and ASG, so we have to find
                 #  ALB instances and then derive the ASG(s) from the instances!

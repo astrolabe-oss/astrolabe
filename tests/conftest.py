@@ -10,6 +10,23 @@ from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.network import Protocol
 from astrolabe.node import Node
 
+from tests import _fake_database
+
+
+@pytest.fixture
+def patch_database(mocker):
+    mocker.patch('astrolabe.database.save_node', side_effect=_fake_database.save_node)
+    mocker.patch('astrolabe.database.connect_nodes', side_effect=_fake_database.connect_nodes)
+    mocker.patch('astrolabe.database.get_connections', side_effect=_fake_database.get_connections)
+    mocker.patch('astrolabe.database.get_nodes_unprofiled', side_effect=_fake_database.get_nodes_unprofiled)
+    mocker.patch('astrolabe.database.get_node_by_address', side_effect=_fake_database.get_node_by_address)
+    mocker.patch('astrolabe.database.get_nodes_pending_dnslookup', side_effect=_fake_database.get_nodes_pending_dnslookup)  # NOQA
+    mocker.patch('astrolabe.database.node_is_k8s_load_balancer', side_effect=_fake_database.node_is_k8s_load_balancer)
+    mocker.patch('astrolabe.database.node_is_k8s_service', side_effect=_fake_database.node_is_k8s_service)
+    _fake_database._node_index_by_address = {}  # pylint:disable=protected-access
+    _fake_database._node_index_by_dnsname = {}  # pylint:disable=protected-access
+    _fake_database._node_primary_index = {}  # pylint:disable=protected-access
+
 
 @pytest.fixture(autouse=True)
 def cli_args_mock(mocker):
@@ -108,7 +125,7 @@ def tree_stubbed_with_child(tree_stubbed, node_fixture) -> Dict[str, Node]:
     child.children = {}
     child.set_profile_timestamp()
     child.address = '5.6.7.8'
-    seed.children = {'child_node': child}
+    _fake_database.connect_nodes(seed, child)
     seed.set_profile_timestamp()
 
     return tree_stubbed

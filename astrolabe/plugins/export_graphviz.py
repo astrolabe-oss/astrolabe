@@ -18,7 +18,7 @@ from typing import Dict
 
 from graphviz import Digraph
 
-from astrolabe import constants, exporters
+from astrolabe import constants, database, exporters
 from astrolabe.node import Node
 
 nodes_compiled = {}
@@ -107,8 +107,9 @@ def _compile_digraph(node_ref: str, node: Node, blocking_from_top: bool = True) 
     node_name = _node_name(node, node_ref)
     _compile_node(node, node_name, blocking_from_top)
     # child
-    if node.children:
-        merged_children = exporters.merge_hints(node.children)
+    children = database.get_connections(node)
+    if len(children) > 0:
+        merged_children = exporters.merge_hints(children)
         for child_ref, child in merged_children.items():
             child: Node
             # defunct

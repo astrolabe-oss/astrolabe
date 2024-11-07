@@ -125,7 +125,9 @@ class ExportCommand(Command):
     def _generate_tree(self) -> Dict[str, node.Node]:
         if not constants.ARGS.output:
             constants.ARGS.output = ['ascii']
-        return export_json.load(constants.ARGS.json_file or constants.LASTRUN_FILE)
+        tree, timestamp = export_json.load(constants.ARGS.json_file or constants.LASTRUN_FILE)
+        constants.CURRENT_RUN_TIMESTAMP = timestamp
+        return tree
 
 
 class DiscoverCommand(Command):
@@ -171,7 +173,7 @@ def _cli_command() -> Command:
 
 def _parse_seed_tree() -> Dict[str, node.Node]:
     return {
-        f"SEED:{address}":
+        f"{provider}:{address}":
             node.Node(
                 profile_strategy_name=profile_strategy.SEED_PROFILE_STRATEGY_NAME,
                 protocol=network.PROTOCOL_SEED,
