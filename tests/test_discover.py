@@ -11,8 +11,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from astrolabe.providers import TimeoutException
-from astrolabe import database, discover, node, providers, constants
-from . import _fake_database
+from astrolabe import discover, node, providers, constants
+
+from tests import _fake_database
 
 
 @pytest.fixture
@@ -21,23 +22,13 @@ def utcnow():
 
 
 @pytest.fixture(autouse=True)
-def patch_database(mocker):
-    mocker.patch('astrolabe.database.save_node', side_effect=_fake_database.save_node)
-    mocker.patch('astrolabe.database.connect_nodes', side_effect=_fake_database.connect_nodes)
-    mocker.patch('astrolabe.database.get_connections', side_effect=_fake_database.get_connections)
-    mocker.patch('astrolabe.database.get_nodes_unprofiled', side_effect=_fake_database.get_nodes_unprofiled)
-    mocker.patch('astrolabe.database.get_node_by_address', side_effect=_fake_database.get_node_by_address)
-    mocker.patch('astrolabe.database.get_nodes_pending_dnslookup', side_effect=_fake_database.get_nodes_pending_dnslookup)  # NOQA
-    mocker.patch('astrolabe.database.node_is_k8s_load_balancer', side_effect=_fake_database.node_is_k8s_load_balancer)
-    mocker.patch('astrolabe.database.node_is_k8s_service', side_effect=_fake_database.node_is_k8s_service)
+def patch_database_autouse(patch_database):  # pylint:disable=unused-argument
+    pass
 
 
 @pytest.fixture(autouse=True)
 def clear_caches():
     """Clear discover.py caches between tests - otherwise our asserts for function calls may not pass"""
-    _fake_database._node_index_by_address = {}  # pylint:disable=protected-access
-    _fake_database._node_index_by_dnsname = {}  # pylint:disable=protected-access
-    _fake_database._node_primary_index = {}  # pylint:disable=protected-access
     discover.child_cache = {}
     discover.discovery_ancestors = {}
 
@@ -436,7 +427,7 @@ async def test_discover_case_profile_results_parsed(protocol_mux, address, debug
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    children = database.get_connections(seed)
+    children = _fake_database.get_connections(seed)
     assert 1 == len(children)
     child: node.Node = children[list(children)[0]]
     assert protocol_mux == child.protocol_mux
@@ -462,7 +453,7 @@ async def test_discover_case_children_with_address_discovered(tree, provider_moc
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    children = database.get_connections(list(tree.values())[0])
+    children = _fake_database.get_connections(list(tree.values())[0])
     assert len(children) == 1
     child_node = list(children.values())[0]
     assert child_node.address == 'dummy_address'
@@ -504,7 +495,7 @@ async def test_discover_case_hint_attributes_set(tree, provider_mock, hint_mock,
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    children = database.get_connections(list(tree.values())[0])
+    children = _fake_database.get_connections(list(tree.values())[0])
     child = list(children.values())[0]
     assert child.from_hint
     assert child.protocol == hint_mock.protocol
@@ -529,7 +520,7 @@ async def test_discover_case_hint_name_used(tree, provider_mock, hint_mock, mock
 
     # assert
     parent_node = list(tree.values())[0]
-    children = database.get_connections(parent_node)
+    children = _fake_database.get_connections(parent_node)
     hint_child_node = list(children.values())[0]
     assert hint_child_node.service_name == hint_nt.debug_identifier
 
@@ -548,7 +539,9 @@ async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mock
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    assert len(list(tree.values())[0].children) == 0
+    test_node = list(tree.values())[0]
+    children = _fake_database.get_connections(test_node)
+    assert len(children) == 0
     assert discover_spy.call_count == 1
 
 
@@ -644,7 +637,7 @@ async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args
 
     # assert
     seed: node.Node = list(tree.values())[0]
-    children = database.get_connections(seed)
+    children = _fake_database.get_connections(seed)
     child: node.Node = list(children.values())[0]
     assert seed.service_name != seed_service_name
     assert child.protocol_mux != child_protocol_mux

@@ -39,6 +39,8 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         from_hint=False,  # No hints in the sandbox for now
         address=platdb_node.address,
         service_name=platdb_node.name,
+        warnings=platdb_node.profile_warnings,
+        errors=platdb_node.profile_errors,
         _profile_timestamp=platdb_node.profile_timestamp,
         _profile_lock_time=platdb_node.profile_lock_time,
         node_type=class_to_node[platdb_node.__class__]
@@ -67,7 +69,9 @@ def save_node(node: Node) -> Node:
         'protocol_multiplexor': node.protocol_mux,
         'profile_timestamp': node.get_profile_timestamp(),
         'profile_lock_time': node.get_profile_lock_time(),
-        'provider': node.provider
+        'provider': node.provider,
+        'profile_warnings': node.warnings,
+        'profile_errors': node.errors
     }
 
     # NOTE Node.node_type defaults to COMPUTE
@@ -141,8 +145,89 @@ def connect_nodes(parent_node: Node, child_node: Node):
     raise Exception(f'The parent in connect node is not being handled it is a {parent.__class__}')
 
 
-def get_connections(_: Node) -> Dict[str, Node]:
+# pylint:disable=broad-exception-raised
+def get_connections(node: Node) -> Dict[str, Node]:
+    """This method is directional - we are only getting downstream nodes from this node"""
+    # Load the platdb_node from Neo4j using its unique properties
+    platdb_node = _load_node_from_neo4j(node)
+
+    if not platdb_node:
+        logs.logger.error("Node not found in Neo4j: %s", node)
+        return {}
+
+    # Determine the type of `platdb_node` and call the appropriate helper
+    if isinstance(platdb_node, platdb.TrafficController):
+        return _get_traffic_controller_connections(platdb_node)
+    elif isinstance(platdb_node, platdb.Resource):
+        return _get_resource_connections(platdb_node)
+    elif isinstance(platdb_node, platdb.Deployment):
+        return _get_deployment_connections(platdb_node)
+    elif isinstance(platdb_node, platdb.Compute):
+        return _get_compute_connections(platdb_node)
+    elif isinstance(platdb_node, platdb.Application):
+        return _get_application_connections(platdb_node)
+    else:
+        raise Exception(f"Unsupported node type for getting connections: {type(platdb_node).__name__}")
+
+
+def _get_traffic_controller_connections(node: platdb.TrafficController) -> Dict[str, Node]:
+    """Since this is directional - we only want connections in the directions requests flow through
+        load balancers... as in: the downstream ASGs, deployments, etc..."""
+    connections = {}
+    for deployment in node.deployments.all():
+        connected_node = _neomodel_to_node(deployment)
+        _add_connection(connections, connected_node)
+    return connections
+
+
+def _get_resource_connections(_node: platdb.Resource) -> Dict[str, Node]:
+    """Resources currently have no downstream connections"""
     return {}
+
+
+def _get_deployment_connections(node: platdb.Deployment) -> Dict[str, Node]:
+    """Since this is direcitonal - we only want the compute nodes associated iwth a deployment,
+       not the upstream traffic controllers..."""
+    connections = {}
+    for compute in node.computes.all():
+        connected_node = _neomodel_to_node(compute)
+        _add_connection(connections, connected_node)
+    return connections
+
+
+def _get_compute_connections(node: platdb.Compute) -> Dict[str, Node]:
+    """In the real world, downstream compute connections are to Resources and TrafficControllers.  However,
+       in our neomodel model - we have a "virtual" Node called Application which we must step through.
+
+       Also - until we have UNKNOWN Node type... sometimes compute have a downstream Compute which is our
+       current (incorrect) default Node type"""
+    connections = {}
+    for compute_to in node.compute_to.all():
+        connected_node = _neomodel_to_node(compute_to)
+        _add_connection(connections, connected_node)
+    # Applications are "virtual" so we need to step through them here
+    for app in node.applications.all():
+        connections.update(_get_application_connections(app))
+    return connections
+
+
+def _get_application_connections(node: platdb.Application) -> Dict[str, Node]:
+    """Directionally - we only want the resources and computes which applications call into, not the deployments and
+       or computes which power them"""
+    connections = {}
+    for resource in node.resources.all():
+        connected_node = _neomodel_to_node(resource)
+        _add_connection(connections, connected_node)
+    for traffic_controller in node.traffic_controllers.all():
+        connected_node = _neomodel_to_node(traffic_controller)
+        _add_connection(connections, connected_node)
+    return connections
+
+
+# Utility function to handle adding connections while avoiding duplicates or recursion
+def _add_connection(connections: Dict[str, Node], connected_node: Node) -> None:
+    key = f"{connected_node.provider}:{connected_node.address or ','.join(connected_node.aliases)}"
+    connections[key] = connected_node
 
 
 def _load_node_from_neo4j(node: Node) -> Optional[platdb.PlatDBNode]:
@@ -220,7 +305,8 @@ def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:
     for cls in node_class:
         # Add the additional filter for profile_timestamp
         nodes = cls.nodes.filter(
-            (platdb.Q(profile_timestamp__isnull=True) | platdb.Q(profile_timestamp__lt=since)) &
+            (platdb.Q(profile_timestamp__isnull=True) |
+             platdb.Q(profile_timestamp__lt=since)) &
             platdb.Q(address__isnull=False)
         )
 

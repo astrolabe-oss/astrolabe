@@ -247,11 +247,12 @@ class ProviderKubernetes(ProviderInterface):
                     provider='k8s',
                     service_name=k8s_service_name
                 )
-                # lb protocol/mux will be filled in when a connection is profiled thereto it
                 lb_node = Node(
                     node_type=NodeType.TRAFFIC_CONTROLLER,
                     profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     provider='k8s',
+                    protocol=PROTOCOL_TCP,
+                    protocol_mux=ports.port,
                     service_name=lb_name,
                     aliases=[lb_address]
                 )

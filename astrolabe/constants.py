@@ -12,6 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import pprint
+from datetime import datetime, timezone
 
 # independent constants
 ARGS = None
@@ -21,6 +22,7 @@ PROVIDER_HINT = 'hnt'
 PROVIDER_SEED = 'seed'
 PROVIDER_INV = 'inv'
 PP = pprint.PrettyPrinter(indent=4)
+CURRENT_RUN_TIMESTAMP = datetime.now(timezone.utc)
 
 # dependent constants
 LASTRUN_FILE = f"{OUTPUTS_DIR}/.lastrun.json"

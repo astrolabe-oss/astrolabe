@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 
 from typing import Dict
 
-from astrolabe import node, exporters
+from astrolabe import node, exporters, database
 
 flat_relationships = {}
 
@@ -36,10 +36,11 @@ def export_tree(tree: Dict[str, node.Node]) -> None:
 
 
 def build_flat_services(tree_node: node.Node) -> None:
-    if not tree_node.children:
+    children = database.get_connections(tree_node)
+    if len(children) < 1:
         return
 
-    for child in tree_node.children.values():
+    for child in children.values():
         relationship = f"{tree_node.service_name or 'UNKNOWN'} --[{child.protocol.ref}]--> " \
                        f"{child.service_name or child.address} ({child.protocol_mux})"
         if relationship not in flat_relationships:

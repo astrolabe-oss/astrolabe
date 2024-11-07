@@ -20,7 +20,7 @@ from typing import List, Dict
 from termcolor import colored
 from termcolor.termcolor import Color
 
-from astrolabe import constants, logs, exporters
+from astrolabe import constants, database, logs, exporters
 from astrolabe.node import Node
 
 
@@ -46,7 +46,7 @@ class ExporterAscii(exporters.ExporterInterface):
 
 
 live_export_lock = asyncio.Lock()
-Ancestor = namedtuple('Ancestor', 'last_sibling spacing')
+Ancestor = namedtuple('Ancestor', 'node last_sibling spacing')
 
 _SLEEP_FOR_HUMANS_SECONDS: float = .01
 _SLEEP_FOR_HUMANS_COUNTER = 0
@@ -82,28 +82,30 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
                 nodes_to_export.pop(node_ref)
                 continue
 
-            # this sleep allows human eyes to comprehend output
-            if print_slowly_for_humans:
-                await asyncio.sleep(_get_sleep_for_humans_seconds())
-            is_last_sibling = 1 == len(nodes_to_export)
+            if node.profile_complete(constants.CURRENT_RUN_TIMESTAMP):
+                # this sleep allows human eyes to comprehend output
+                if print_slowly_for_humans:
+                    await asyncio.sleep(_get_sleep_for_humans_seconds())
+                is_last_sibling = 1 == len(nodes_to_export)
 
-            # set up recursive children's parent back-reference
-            childrens_ancestors = parents.copy()  # copy isolates branch parents
-            childrens_ancestors.append(Ancestor(is_last_sibling, len(node.protocol.ref)))
+                # set up recursive children's parent back-reference
+                childrens_ancestors = parents.copy()  # copy isolates branch parents
+                childrens_ancestors.append(Ancestor(node, is_last_sibling, len(node.protocol.ref)))
 
-            # print prefixes
-            print_prefix = _export_node_display_prefix(parents)
-            error_print_prefix = _export_node_display_prefix(childrens_ancestors)
+                # print prefixes
+                print_prefix = _export_node_display_prefix(parents)
+                error_print_prefix = _export_node_display_prefix(childrens_ancestors)
 
-            # export
-            _export_node(node, depth, print_prefix, is_last_sibling, out)
-            if constants.ARGS.export_ascii_verbose:
-                _export_node_errs_warns(node, error_print_prefix, out)
+                # export
+                _export_node(node, depth, print_prefix, is_last_sibling, out)
+                if constants.ARGS.export_ascii_verbose:
+                    _export_node_errs_warns(node, error_print_prefix, out)
 
-            nodes_to_export.pop(node_ref)
+                nodes_to_export.pop(node_ref)
 
-            if len(childrens_ancestors) <= constants.ARGS.max_depth and node.children:
-                await export_tree(node.children, childrens_ancestors, out, print_slowly_for_humans)
+                children = database.get_connections(node)
+                if len(childrens_ancestors) <= constants.ARGS.max_depth and len(children) > 0:
+                    await export_tree(children, childrens_ancestors, out, print_slowly_for_humans)
 
         # this sleep prevents CPU hoarding
         if (len(nodes_to_export)) > 0:
@@ -304,9 +306,7 @@ def _synthesize_node_ref(node: Node, default: str) -> str:
     :return: a 'synthetic' node_ref
     """
     if node.service_name:
-        synthetic_node_ref = f"{node.protocol.ref.lower()}_{node.service_name}"
-        if constants.ARGS.export_ascii_verbose:
-            synthetic_node_ref += f"_{node.provider}"
+        synthetic_node_ref = f"{node.provider}_{node.service_name}"
         return synthetic_node_ref
 
     return default

@@ -27,7 +27,7 @@ class ExporterJson(exporters.ExporterInterface):
         return 'json'
 
     def export(self, tree: Dict[str, Node]):
-        tree_with_args = _add_cli_args_to_json_tree(tree)
+        tree_with_args = _add_metadata_to_json_tree(tree)
         print(json.dumps(tree_with_args, cls=_EnhancedJSONEncoder))
 
 
@@ -73,7 +73,7 @@ def load(file):
         loaded = json.load(open_file, object_hook=_deserialize_object)
         constants.ARGS.max_depth = int(loaded['args']['max_depth'])
 
-        return loaded['tree']
+        return loaded['tree'], loaded['run_timestamp']
 
 
 def dump(tree: Dict[str, Node], file: str = None) -> None:
@@ -83,13 +83,14 @@ def dump(tree: Dict[str, Node], file: str = None) -> None:
     :param file:
     :return:
     """
-    tree_with_args = _add_cli_args_to_json_tree(tree)
+    tree_with_args = _add_metadata_to_json_tree(tree)
     with open(file, 'w+', encoding="utf8") as file_handle:
         json.dump(tree_with_args, file_handle, cls=_EnhancedJSONEncoder)
 
 
-def _add_cli_args_to_json_tree(tree: Dict[str, Node]) -> dict:
+def _add_metadata_to_json_tree(tree: Dict[str, Node]) -> dict:
     return {
+        'run_timestamp': constants.CURRENT_RUN_TIMESTAMP,
         'args': vars(constants.ARGS),
         'tree': tree
     }
