@@ -8,7 +8,7 @@ License:
 SPDX-License-Identifier: Apache-2.0
 
 System Requirements:
-- requires system installation of graphviz package
+- requires system installation of `graphviz` package (brew install graphviz)
 """
 
 from typing import Dict

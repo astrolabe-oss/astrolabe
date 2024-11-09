@@ -1,0 +1,20 @@
+inherits:
+  - default
+
+strictness: high
+
+max-line-length: 120
+
+test-warnings: true
+
+ignore-paths:
+  - build
+  - dist
+
+pylint:
+  disable:
+    - logging-format-interpolation  # prefer modern f strings
+    - misplaced-comparison-constant # prefer "yoda conditions"
+    - no-else-return                # prefer multiple return statements
+    - redefined-outer-name          # pytest fixture
+  source-roots: .
