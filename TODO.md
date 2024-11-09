@@ -23,13 +23,16 @@
   * [ ] rename ProfileStrategy -> RemoteDiscoveryScript
 * [ ] should "address" be the DNS name for a load balancer?
 * [ ] should application be a "tag" not a Node?
+* [ ] seed auto discovery
 * [ ] ProfileStrategies
   * [ ] a queuing system
+* [ ] Providers
+  * [ ] c7n provider
  * [ ] ProfileStrategy::childProviders: rewrite provider lookup to be a shotgun approach instead of configured?
-
 
 ### REFACTORS/TESTS
 * [ ] `node.py`: remove Node.children field (should be unused logically - cruft remains mainly in tests)
+* [ ] `node.py`: get ride of NodeTransport?
 * [ ] `database.py`: neo4j vars should be looked up in ENV vars as well.  (Can we do this by convention for all args?)
 * [ ] `discover.py`: tests for idempotency runs
 * [ ] `database.py`: get rid of database.node_is* funcs, these shouldn't require a database call
@@ -42,9 +45,6 @@
 * [ ] Writing Custom Plugins/Providers - example
 * [ ] Env Vars
 
-
-
-
 ### FOR OSS RELEASE (NOV 2024)
 * [x] code
   * [x] `discover.py`: idempotent `discover` subsequent runs
@@ -55,7 +55,6 @@
   * [x] createe astrolabe github org
   * [x] create astrolabe fiter-repo and ported over
   * [x] corelib filter-repo and ported or over
-
 
 ### NEO4J INTEGRATION (OCT 2024)
 * [x] ASG->Deployments not attached
