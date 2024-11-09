@@ -29,6 +29,7 @@
 
 
 ### REFACTORS/TESTS
+* [ ] `node.py`: remove Node.children field (should be unused logically - cruft remains mainly in tests)
 * [ ] `database.py`: neo4j vars should be looked up in ENV vars as well.  (Can we do this by convention for all args?)
 * [ ] `discover.py`: tests for idempotency runs
 * [ ] `database.py`: get rid of database.node_is* funcs, these shouldn't require a database call
