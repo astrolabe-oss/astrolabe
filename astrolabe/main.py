@@ -204,11 +204,3 @@ def _set_debug_level():
     if hasattr(constants.ARGS, 'quiet') and not constants.ARGS.quiet:
         logs.logger.setLevel(logging.INFO)
 
-
-# TODO LIST
-# * [ ] TODO: rewrite main.py - make it not fancy
-# * [ ] TODO: remove or improve ancestry tracking (CYCLE and MAX_DEPTH detection)
-# * [ ] TODO: tests for new database functionality
-# * [ ] TODO: functionality unit tests for e2e cases for inventory/seed/profile Node conflict/merge cases
-# * [ ] TODO: rewrite profile-strategy to ShellProfileStrategy and remove need for config files to profile?
-# * [ ] TODO: rewrite provider lookup to be a shotgun approach instead of configured?
