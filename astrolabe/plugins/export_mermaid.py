@@ -16,6 +16,10 @@ from typing import Dict
 from astrolabe import constants, database, exporters
 from astrolabe.node import Node
 
+MERMAID_LR = 'LR'
+MERMAID_TB = 'TB'
+MERMAID_AUTO = 'auto'
+
 # Global variables to keep track of nodes and edges
 nodes_compiled = []
 edges_compiled = []
@@ -44,11 +48,14 @@ class MermaidGraph:
         for node_class in node_classes:
             self.mermaid_lines.append(f"    class {node_name} {node_class}")
 
-    def add_edge(self, from_node: str, to_node: str, label: str = ''):
+    def add_edge(self, from_node: str, to_node: str, label: str, blocking: bool):
         """
         Adds an edge between two nodes with an optional label.
         """
-        arrow = "-->" if not label else f"--{label}-->"
+        if blocking:
+            arrow = f"--{label}-->"
+        else:
+            arrow = f"-.{label}.->"
         edge_str = f"    {from_node} {arrow} {to_node}"
 
         self.mermaid_lines.append(edge_str)
@@ -58,8 +65,8 @@ class MermaidGraph:
         Returns the generated Mermaid code as a string.
         """
         direction = self.direction
-        if direction == 'auto':
-            direction = 'TD'  # Automatically choose the top-to-bottom layout as default
+        if direction == MERMAID_AUTO:
+            direction = MERMAID_TB  # Automatically choose the top-to-bottom layout as default
 
         # Initialize flowchart with direction
         mermaid_code = [f"graph {direction}"]
@@ -84,19 +91,16 @@ class ExporterMermaid(exporters.ExporterInterface):
     @staticmethod
     def register_cli_args(argparser: exporters.ExporterArgParser):
         argparser.add_argument('--direction',
-                               choices=['LR', 'TB', 'auto'],
-                               default='auto',
+                               choices=[MERMAID_LR, MERMAID_TB, MERMAID_AUTO],
+                               default=MERMAID_AUTO,
                                help='Layout direction for mermaid diagram. '
                                     "LR = Left-to-Right, "
                                     "TB = Top-to-Bottom, "
                                     "auto = automatically chooses the best direction")
 
     def export(self, tree: Dict[str, Node]):
-        mermaid_graph = MermaidGraph(direction=constants.ARGS.export_mermaid_direction)
-        compile_mermaid_diagram(tree, mermaid_graph)
-
         # Get the generated Mermaid code
-        mermaid_code = mermaid_graph.generate()
+        mermaid_code = export_tree(tree)
 
         # Create the filename based on the seed names or default seeds
         seed_names = ','.join([node.service_name for node in tree.values() if node.service_name is not None])
@@ -125,24 +129,27 @@ class ExporterMermaidSource(exporters.ExporterInterface):
         return 'mermaid_source'
 
     def export(self, tree: Dict[str, Node]):
-        mermaid_graph = MermaidGraph(direction=constants.ARGS.export_mermaid_direction)
-        compile_mermaid_diagram(tree, mermaid_graph)
-
-        # Get the generated Mermaid code
-        mermaid_code = mermaid_graph.generate()
-
-        # Output the Mermaid source code
-        print(mermaid_code)
+        print(export_tree(tree))
 
     @staticmethod
     def register_cli_args(argparser: exporters.ExporterArgParser):
         argparser.add_argument('--direction',
-                               choices=['LR', 'TB', 'auto'],
-                               default='auto',
+                               choices=[MERMAID_LR, MERMAID_TB, MERMAID_AUTO],
+                               default=MERMAID_AUTO,
                                help='Layout direction for mermaid diagram. '
                                     "LR = Left-to-Right, "
                                     "TB = Top-to-Bottom, "
                                     "auto = automatically chooses the best direction")
+
+
+def export_tree(tree: Dict[str, Node]) -> str:
+    mermaid_graph = MermaidGraph(direction=constants.ARGS.export_mermaid_direction)
+    compile_mermaid_diagram(tree, mermaid_graph)
+
+    # Get the generated Mermaid code
+    mermaid_code = mermaid_graph.generate()
+
+    return mermaid_code
 
 
 def compile_mermaid_diagram(tree: Dict[str, Node], mermaid_graph: MermaidGraph) -> None:
@@ -159,32 +166,32 @@ def compile_mermaid_diagram(tree: Dict[str, Node], mermaid_graph: MermaidGraph) 
     edges_compiled.clear()
 
     # Export nodes and connections
-    for node_ref, node in tree.items():
-        _compile_flowchart(node_ref, node, mermaid_graph)
+    for _, node in tree.items():
+        _compile_flowchart(node, mermaid_graph)
 
 
-def _compile_flowchart(node_ref: str, node: Node, mermaid_graph: MermaidGraph) -> None:
-    node_name = _node_name(node, node_ref)
+def _compile_flowchart(node: Node, mermaid_graph: MermaidGraph) -> None:
+    node_name = _node_name(node)
     _compile_node(node, node_name, mermaid_graph)
 
     children = database.get_connections(node)
     if len(children) > 0:
         merged_children = exporters.merge_hints(children)
-        for child_ref, child in merged_children.items():
+        for _, child in merged_children.items():
             if child.warnings.get('DEFUNCT') and constants.ARGS.hide_defunct:
                 continue
 
-            child_name = _node_name(child, child_ref)
+            child_name = _node_name(child)
 
             _compile_node(child, child_name, mermaid_graph)
-            _compile_edge(node_name, child_name, child.protocol.ref, mermaid_graph)
-            _compile_flowchart(child_ref, child, mermaid_graph)
+            _compile_edge(node_name, child_name, child.protocol.ref, child.protocol.blocking, mermaid_graph)
+            _compile_flowchart(child, mermaid_graph)
 
 
-def _compile_edge(parent_name: str, child_name: str, label: str, mermaid_graph: MermaidGraph) -> None:
+def _compile_edge(parent_name: str, child_name: str, label: str, blocking: bool, mermaid_graph: MermaidGraph) -> None:
     edge_str = f"{parent_name}.{label}.{child_name}"
     if edge_str not in edges_compiled:
-        mermaid_graph.add_edge(parent_name, child_name, label)
+        mermaid_graph.add_edge(parent_name, child_name, label, blocking)
         edges_compiled.append(edge_str)
 
 
@@ -193,15 +200,17 @@ def _compile_node(node: Node, name: str, mermaid_graph: MermaidGraph) -> None:
         node_classes = []
         if node.errors:
             node_classes.append("error")
-        if node.warnings:
+        if 'DEFUNCT' in node.warnings:
+            node_classes.append("defunct")
+        elif node.warnings:
             node_classes.append("warning")
 
         mermaid_graph.add_node(name, node.is_database(), node.containerized, node_classes)
         nodes_compiled.append(name)
 
 
-def _node_name(node: Node, node_ref: str) -> str:
-    name = node.service_name or f"UNKNOWN{node_ref}"
+def _node_name(node: Node) -> str:
+    name = node.service_name or "UNKNOWN"
     clean_name = exporters.clean_service_name(name)
     clean_name = f"{clean_name}-{node.provider}"
     return clean_name
