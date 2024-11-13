@@ -66,8 +66,9 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):
     while unprofiled_nodes := database.get_nodes_unprofiled(constants.CURRENT_RUN_TIMESTAMP):
         unlocked_nodes = {n_id: node for n_id, node in unprofiled_nodes.items() if not node.profile_locked()}
         if not unlocked_nodes:
-            logs.logger.info("Waiting for %d pending profile jobs to complete, sleeping %.1f",
-                             len(unprofiled_nodes), unlocked_logging_sleep)
+            pending = ",".join((n.address for n in unprofiled_nodes.values() if n.profile_locked()))
+            logs.logger.info("Waiting for %d pending profile jobs (%s) to complete, sleeping %.1f",
+                             len(unprofiled_nodes), pending, unlocked_logging_sleep)
             await asyncio.sleep(unlocked_logging_sleep)
             new_sleep = unlocked_logging_sleep + .1
             unlocked_logging_sleep = new_sleep if new_sleep < unlocked_logging_max_sleep else unlocked_logging_max_sleep

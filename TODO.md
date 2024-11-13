@@ -11,8 +11,9 @@
   * [ ] credit image: https://commons.wikimedia.org/wiki/File:Astrolabe.png
 
 ### BUGS
-* [ ] `cli_args.py`: configargparse doesn't let parse lists in config file!  prevents us from putting seeds in config files
+* [ ] `cli_args.py`: configargparse doesn't let parse lists in config file! (NOV 2024)
 * [ ] cannot save nodes with no address or alias (used to be able to save nodes with protocol_mux only, this died during the neo4j refactor)
+* [ ] `timeout` seems to be no timeout for profiling/discovery any more.  non-ssh-able seeds will hang `discover` forever!
 
 ### FEATURES/IMPROVEMENTS
 * [x] FEATURE - export mermaid (NOV 2024)
@@ -58,7 +59,6 @@
 ### NEO4J INTEGRATION (OCT 2024)
 * [x] ASG->Deployments not attached
 * [x] unit tests for astrolabe error out if NEO4J_* env vars are not set
-
 
 ### PROFILE STRATEGY REWRITE (OCT 2024)
 * [x] get rid of HintProfileStrategy!
