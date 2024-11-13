@@ -221,7 +221,7 @@ async def test_export_tree_case_merged_nodes(tree_stubbed_with_child, capsys):
     # arrange
     seed = tree_stubbed_with_child[list(tree_stubbed_with_child)[0]]
     child = list(_fake_database.get_connections(seed).values())[0]
-    redundant_child = replace(child, protocol_mux='some_other_mux')
+    redundant_child = replace(child, address='asdf-zxc', protocol_mux='some_other_mux')
     _fake_database.connect_nodes(seed, redundant_child)
     # - we have to capture this now because export_tree will mutate these objects!
     expected_merged_mux = f"{child.protocol_mux},{redundant_child.protocol_mux}"
@@ -290,8 +290,11 @@ async def test_export_tree_case_merged_nodes(tree_stubbed_with_child, capsys):
 #     child_3.protocol_mux = protocol_mux_2
 #     child_3.set_profile_timestamp()
 #
-#     list(tree_named.values())[0].children = {'child1': child_1, 'child2': child_2, 'child3': child_3}
-#     list(tree_named.values())[0].set_profile_timestamp()
+#     parent_node = list(tree_named.values())[0]
+#     _fake_database.connect_nodes(parent_node, child_1)
+#     _fake_database.connect_nodes(parent_node, child_2)
+#     _fake_database.connect_nodes(parent_node, child_3)
+#     parent_node.set_profile_timestamp()
 #
 #     # act
 #     await _helper_export_tree_with_timeout(tree_named)

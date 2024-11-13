@@ -1,6 +1,3 @@
-### ACTIVE
-* [~] FEATURE - export mermaid
-
 ### OSS RELEASE FOLLOW UPS
 * [ ] code
   * [ ] astrolabe CI/CD move to github
@@ -18,6 +15,7 @@
 * [ ] cannot save nodes with no address or alias (used to be able to save nodes with protocol_mux only, this died during the neo4j refactor)
 
 ### FEATURES/IMPROVEMENTS
+* [x] FEATURE - export mermaid (NOV 2024)
 * [ ] UNKNOWN platdb node type!
 * [ ] Rename discover/profile?
   * [ ] rename ProfileStrategy -> RemoteDiscoveryScript
@@ -29,6 +27,7 @@
 * [ ] Providers
   * [ ] c7n provider
  * [ ] ProfileStrategy::childProviders: rewrite provider lookup to be a shotgun approach instead of configured?
+ * [ ] EXPORTERS: optionally export entire graph or just tree from passed in seeds 
 
 ### REFACTORS/TESTS
 * [ ] `node.py`: remove Node.children field (should be unused logically - cruft remains mainly in tests)

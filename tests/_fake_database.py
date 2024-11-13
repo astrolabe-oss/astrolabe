@@ -61,7 +61,8 @@ def connect_nodes(node1: Node, node2: Node):
         children = {}
         _node_connections[parent_key] = children
     children = _node_connections[parent_key]
-    child_key = f"{node2.provider}:{node2.address}:{node2.protocol_mux}"
+    child_key = node2.address if node2.address else ",".join(node2.aliases)  # this mimic real database
+    # child_key = f"{node2.provider}:{node2.address}:{node2.protocol.ref}:{node2.protocol_mux}:{node2.from_hint}"
     children[child_key] = node2
 
 

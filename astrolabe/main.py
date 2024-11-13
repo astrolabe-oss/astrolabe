@@ -203,4 +203,3 @@ def _set_debug_level():
         return
     if hasattr(constants.ARGS, 'quiet') and not constants.ARGS.quiet:
         logs.logger.setLevel(logging.INFO)
-
