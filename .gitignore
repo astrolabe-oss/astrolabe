@@ -146,3 +146,4 @@ cython_debug/
 # astrolabe
 outputs/
 .lastrun.json
+examples/pynapple.astrolabe.conf

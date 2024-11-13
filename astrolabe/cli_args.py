@@ -34,7 +34,8 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
 
     global argparser, discover_subparser, export_subparser
     argparser = configargparse.ArgumentParser(
-        description="Run Astrolabe against your datacenter to discover network topology!"
+        description="Run Astrolabe against your datacenter to discover network topology!",
+        config_file_parser_class=configargparse.DefaultConfigFileParser
     )
 
     def formatter_class(prog):
@@ -65,7 +66,7 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
                            help='Specify a config file path')
 
     # discover command args
-    discover_p.add_argument('-s', '--seeds', required=True, nargs='+', metavar='SEED',
+    discover_p.add_argument('-s', '--seeds', nargs="+", required=True, metavar='SEED',
                             help='Seed host(s) to begin discovering viz. an IP address or hostname.  '
                                  'Must be in the format: "provider:address".  '
                                  'e.g. "ssh:10.0.0.42" or "k8s:widget-machine-5b5bc8f67f-2qmkp')
