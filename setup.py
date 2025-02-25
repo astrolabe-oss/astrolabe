@@ -14,7 +14,7 @@ setup(
     name="astrolabe",
     version=version,
     author="etherops",
-    author_email="pk@magellanbot.com",
+    author_email="patrick@golightwire.com",
     description="It's like a web-crawler, but for microservices",
     long_description=long_description,
     long_description_content_type="text/markdown",

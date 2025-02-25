@@ -3,10 +3,9 @@
 import datetime
 import pytest
 
-from corelib import platdb
 
 from astrolabe.node import Node, NodeType
-from astrolabe import database
+from astrolabe import database, platdb
 
 
 @pytest.fixture

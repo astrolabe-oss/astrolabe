@@ -12,10 +12,8 @@ import os
 from typing import Dict, Optional
 from datetime import datetime
 
-from corelib import platdb
-
 from astrolabe.node import Node, NodeType
-from astrolabe import network, logs
+from astrolabe import network, logs, platdb
 
 NEO4J_URI = os.getenv('NEO4J_URI', 'bolt://localhost:7689')
 NEO4J_USERNAME = os.getenv('NEO4J_USERNAME', '')
