@@ -7,8 +7,8 @@ import pytest
 from neomodel import db
 
 from astrolabe.platdb import (Neo4jConnection,
-                            Application, 
-                            Compute)
+                              Application,
+                              Compute)
 
 
 @pytest.fixture(scope="module")

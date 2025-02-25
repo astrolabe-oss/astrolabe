@@ -25,8 +25,7 @@ from neomodel import (
     RelationshipTo,
     StringProperty,
     StructuredNode,
-    db,
-    Q
+    db
 )
 
 from neomodel.properties import Property
@@ -207,7 +206,7 @@ class PlatDBDNSNode(PlatDBNode):
 
         # IF NOT, TRY TO FIND BY DNS_NAMES
         if not existing_resource:
-            # This is garbage, no current way to run this query in neomodel!  https://github.com/neo4j-contrib/neomodel/issues/379
+            # No current way to run this query in neomodel!  https://github.com/neo4j-contrib/neomodel/issues/379
             all_resources = cls.nodes.all()
             if len(all_resources) > 0:
                 for resource in all_resources:

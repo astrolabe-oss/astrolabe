@@ -1,5 +1,4 @@
 import datetime
-import neo4j
 import pytest
 
 
@@ -80,6 +79,7 @@ neo4j_db_fixtures = [
         "protocol_multiplexor": "443"
     })
 ]
+
 
 @pytest.mark.parametrize('neomodel_class, create_attrs, update_attrs', neo4j_db_fixtures)
 def test_create(neomodel_class, create_attrs, update_attrs):
@@ -163,6 +163,7 @@ def test_get_full_graph_as_json(mocker, mock_complex_graph, neo4j_connection):
         if v_type == 'CALLED BY':
             assert vertices[start]['name'] == 'app2'
             assert vertices[dest]['name'] == 'app1'
+
 
 @pytest.mark.parametrize('cls,orig_attrs,updated_attrs', neo4j_db_fixtures)
 def test_platdb_time_attrs(cls, orig_attrs, updated_attrs):

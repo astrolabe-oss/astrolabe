@@ -88,6 +88,7 @@ neo4j_db_fixtures = [
     })
 ]
 
+
 def test_delete_by_attributes_object_does_not_exist(mocker):
     # arrange
     mock_nodes = mocker.patch.object(StructuredNode, "nodes")
