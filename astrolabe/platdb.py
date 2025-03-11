@@ -25,7 +25,8 @@ from neomodel import (
     RelationshipTo,
     StringProperty,
     StructuredNode,
-    db
+    db,
+    Q
 )
 
 from neomodel.properties import Property
