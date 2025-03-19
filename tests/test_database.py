@@ -72,6 +72,7 @@ def mock_neo4j_connection_open(mocker):
 def mock_neo4j_replace(mocker):
     return mocker.patch.object(neomodel.RelationshipManager, 'replace', return_value=None)
 
+
 @pytest.fixture(autouse=True)
 def mock_neo4j_connect(mocker):
     return mocker.patch.object(neomodel.RelationshipManager, 'connect', return_value=None)
