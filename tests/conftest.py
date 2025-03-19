@@ -32,6 +32,7 @@ def patch_database(mocker):
 def cli_args_mock(mocker):
     args = mocker.patch('astrolabe.constants.ARGS', autospec=True)
     args.max_depth = 100
+    args.seeds_only = False
     return args
 
 

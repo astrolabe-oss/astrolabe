@@ -13,7 +13,6 @@ import asyncio
 import sys
 import traceback
 
-from dataclasses import replace
 from typing import Dict, List, Optional
 
 from termcolor import colored
@@ -48,7 +47,7 @@ class DiscoveryException(Exception):
 
 
 # pylint:disable=too-many-locals
-async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):
+async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noqa: C901
     global discovery_ancestors  # pylint:disable=global-variable-not-assigned
     # SEED DATABASE
     for ref, node in seeds.items():
@@ -63,7 +62,14 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):
     # PROFILE NODES
     unlocked_logging_sleep = 0.1
     unlocked_logging_max_sleep = 1
-    while unprofiled_nodes := database.get_nodes_unprofiled(constants.CURRENT_RUN_TIMESTAMP):
+
+    def _get_nodes_unprofiled() -> Dict[str, Node]:
+        upn = database.get_nodes_unprofiled(constants.CURRENT_RUN_TIMESTAMP)
+        if constants.ARGS.seeds_only:
+            return {r: n for r, n in upn.items() if n.address in [n.address for n in seeds.values()]}
+        return upn
+
+    while unprofiled_nodes := _get_nodes_unprofiled():
         unlocked_nodes = {n_id: node for n_id, node in unprofiled_nodes.items() if not node.profile_locked()}
         if not unlocked_nodes:
             pending = ",".join((n.address for n in unprofiled_nodes.values() if n.profile_locked()))
@@ -251,16 +257,7 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
 # pylint:disable=too-many-locals
 async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str, Node]:  # noqa: C901
     provider_ref = node.provider
-    address = node.address
     service_name = node.service_name
-
-    # CHECK CACHE
-    cache_key = f"{node.provider}:{node.service_name}"
-    if cache_key in child_cache:
-        logs.logger.debug("Found %d children in cache for:%s", len(child_cache[cache_key]), cache_key)
-        # we must do this copy to avoid various contention and infinite recursion bugs
-        return {r: replace(n, children={}, warnings=n.warnings.copy(), errors=n.errors.copy())
-                for r, n in child_cache[cache_key].items()}
 
     # COMPILE PROFILE STRATEGIES
     tasks = []
@@ -274,7 +271,7 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
             continue
         profile_strategies.append(pfs)
     tasks.append(asyncio.wait_for(
-        providers.get_provider_by_ref(provider_ref).profile(address, profile_strategies, connection),
+        providers.get_provider_by_ref(provider_ref).profile(node, profile_strategies, connection),
         timeout=constants.ARGS.timeout
     ))
 
@@ -297,7 +294,7 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
             print(colored(f"Timeout when attempting to profile service: {service_name}, node_ref: {node_ref}",
                           'red'))
             print(colored(f"Connection object: {connection}:", 'yellow'))
-            print(colored(vars(connection), 'yellow'))
+            print(colored(vars(connection) if connection else 'no connection', 'yellow'))
         print(f"{type(profile_exceptions[0])}({profile_exceptions[0]})")
         raise profile_exceptions[0]
 
@@ -322,8 +319,6 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
     # EXCLUDE DISABLED PROVIDERS
     nonexcluded_children = {ref: n for ref, n in children.items() if n.provider not in constants.ARGS.disable_providers}
 
-    # SET CACHE
-    child_cache[cache_key] = nonexcluded_children
     return nonexcluded_children
 
 

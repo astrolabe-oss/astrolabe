@@ -141,7 +141,7 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
     # assert
     provider_mock.open_connection.assert_called_once_with(list(tree.values())[0].address)
     provider_mock.lookup_name.assert_called_once_with(list(tree.values())[0].address, stub_connection)
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [ps_mock], stub_connection)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [ps_mock], stub_connection)
 
 
 @pytest.mark.asyncio
@@ -290,44 +290,6 @@ async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock
 
     # assert
     provider_mock.profile.assert_not_called()
-
-
-# pytest:disable=too-many-positional-arguments
-@pytest.mark.parametrize('name1,name2,provider1,provider2,uses_cache', [
-    ('service_A', 'service_A', 'prov_A', 'prov_A', True),
-    ('service_A', 'service_B', 'prov_A', 'prov_A', False),
-    ('service_A', 'service_A', 'prov_A', 'prov_B', False)
-])
-@pytest.mark.asyncio
-async def test_discover_case_profile_caching(tree, node_fixture_factory, provider_mock, ps_mock, protocol_mock,
-                                             name1, name2, provider1, provider2, uses_cache):
-    """Validate the calls to profile for the same service_name and provider are cached.  Caching is only guaranteed for
-    different depths in the tree since siblings execute concurrently - and so we have to test a tree with more
-    depth > 1
-      node1
-        └> node2
-            └> node2_child (we are testing whether this node is cached based on node1)
-
-    """
-    # arrange
-    node1 = list(tree.values())[0]
-    node1.provider = provider1
-    node2 = node_fixture_factory()
-    node2.address = 'foo'  # must be different than list(tree.values())[0].address to avoid caching
-    node2_child = node.NodeTransport('PS_NAME', provider2, protocol_mock, 'foo_mux', 'bar_address')
-    tree['dummy2'] = node2
-    provider_mock.lookup_name.side_effect = [name1, 'node_2_service_name', name2]
-    provider_mock.profile.side_effect = [[], [node2_child], []]
-    ps_mock.providers = [provider_mock.ref()]
-    ps_mock.determine_child_provider.return_value = provider2
-
-    # act
-    await discover.discover(tree, [])
-    await _wait_for_all_tasks_to_complete()
-
-    # assert
-    expected_call_count = 2 if uses_cache else 3
-    assert provider_mock.profile.call_count == expected_call_count
 
 
 @pytest.mark.asyncio
@@ -577,7 +539,7 @@ async def test_discover_case_respect_cli_skip_protocols(tree, provider_mock, ps_
     # act
     await discover.discover(tree, [])
     # assert
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [], mocker.ANY)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [], mocker.ANY)
 
 
 @pytest.mark.asyncio
@@ -656,7 +618,7 @@ async def test_discover_case_respect_ps_filter_service_name(tree, provider_mock,
 
     # assert
     ps_mock.filter_service_name.assert_called_once_with(list(tree.values())[0].service_name)
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [], mocker.ANY)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [], mocker.ANY)
 
 
 @pytest.mark.asyncio
