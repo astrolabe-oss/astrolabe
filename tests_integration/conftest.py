@@ -8,7 +8,8 @@ from neomodel import db
 
 from astrolabe.platdb import (Neo4jConnection,
                               Application,
-                              Compute)
+                              Compute,
+                              Deployment)
 
 
 @pytest.fixture(scope="module")
@@ -44,13 +45,21 @@ def mock_complex_graph(neo4j_connection):
     Applications and Computes are connected based off numbers, 
     so app1 -> compute1 etc. 
     """
+    # Nodes
     app1 = Application(**{'name': 'app1'}).save()
     app2 = Application(**{'name': 'app2'}).save()
     compute1 = Compute(**create_mock_service('compute1')).save()
     compute2 = Compute(**create_mock_service('compute2')).save()
+    deployment1 = Deployment(**{'address': 'addy1'}).save()
+    deployment2 = Deployment(**{'address': 'addy2'}).save()
 
-    compute1.applications.connect(app1)
-    compute2.applications.connect(app2)
+    # Connections
+    deployment1.computes.connect(compute1)
+    compute1.deployment.connect(deployment1)
+    deployment1.application.connect(app1)
+    app1.deployments.connect(deployment1)
 
-    app1.application_to.connect(app2)
-    app1.application_from.connect(app2)
+    deployment2.computes.connect(compute2)
+    compute2.deployment.connect(deployment2)
+    deployment2.application.connect(app2)
+    app2.deployments.connect(deployment2)

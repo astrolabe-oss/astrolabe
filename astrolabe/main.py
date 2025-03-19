@@ -17,6 +17,7 @@ import logging
 import os
 import signal
 import sys
+import traceback
 from contextlib import contextmanager
 from typing import Dict
 
@@ -135,6 +136,7 @@ class DiscoverCommand(Command):
     def _initialize_plugins(self):
         exporters.register_exporters()
         providers.register_providers()
+        asyncio.get_event_loop().run_until_complete(providers.perform_inventory())
 
     def _generate_tree(self) -> Dict[str, node.Node]:
         tree = asyncio.get_event_loop().run_until_complete(_discover_network())
@@ -154,7 +156,11 @@ async def _discover_network():
         )
     else:
         await discover.discover(tree, [])
-        await export_ascii.export_tree(tree, [], out=sys.stderr, print_slowly_for_humans=True)
+        try:
+            await export_ascii.export_tree(tree, [], out=sys.stderr, print_slowly_for_humans=True)
+        except Exception as e:  # pylint:disable=broad-exception-caught
+            print(f"Error during ASCII tree export: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
     return tree
 
 

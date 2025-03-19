@@ -43,6 +43,8 @@ class ProviderAWS(ProviderInterface):
         self.elasticache_client = boto3.client('elasticache')
         self.tag_filters = {tag_filter.split('=')[TAG_NAME_POS]: tag_filter.split('=')[TAG_VALUE_POS]
                             for tag_filter in constants.ARGS.aws_tag_filters}
+
+    async def inventory(self):
         self._inventory_rds()
         self._inventory_elasticache()
         self._inventory_load_balancers()
@@ -163,15 +165,28 @@ class ProviderAWS(ProviderInterface):
                     logs.logger.info("Inventoried 1 AWS ElastiCache node: %s", node.debug_id())
 
     # pylint:disable=too-many-locals,too-many-nested-blocks
-    def _inventory_load_balancers(self):
+    def _inventory_load_balancers(self):  # noqa: C901, MC0001
         paginator = self.elb_client.get_paginator('describe_load_balancers')
         for page in paginator.paginate():
             for lb in page['LoadBalancers']:  # pylint:disable=invalid-name
                 lb_node = None
                 lb_address = lb['DNSName']
-                name = lb['LoadBalancerName']
+                lb_name = lb['LoadBalancerName']
                 listeners = self.elb_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])['Listeners']
                 lb_port = listeners[0]['Port'] if listeners else None
+                tags_response = self.elb_client.describe_tags(ResourceArns=[lb['LoadBalancerArn']])
+                if 'TagDescriptions' in tags_response and tags_response['TagDescriptions']:
+                    for tag in tags_response['TagDescriptions'][0]['Tags']:
+                        if tag['Key'] == constants.ARGS.aws_service_name_tag:
+                            lb_app_tag = tag['Value']
+                            break
+                    else:
+                        raise ValueError(
+                            f'Required tag {constants.ARGS.aws_service_name_tag} not configured for AWS LB: {lb_name}')
+                else:
+                    raise ValueError(
+                        f'Required tag {constants.ARGS.aws_service_name_tag} not configured for AWS LB: {lb_name}')
+
                 if not lb_node:  # we only need this once
                     lb_node = Node(
                         node_type=NodeType.TRAFFIC_CONTROLLER,
@@ -179,7 +194,7 @@ class ProviderAWS(ProviderInterface):
                         provider='aws',
                         protocol=PROTOCOL_TCP,
                         protocol_mux=lb_port,
-                        service_name=name,
+                        service_name=lb_app_tag,
                         aliases=[lb_address]
                     )
                     database.save_node(lb_node)
@@ -205,15 +220,14 @@ class ProviderAWS(ProviderInterface):
                             # Create the ASG Node
                             if not asg_node:  # we only need this once
                                 asg_name = asg_instance['AutoScalingGroupName']
-                                asg_address = asg_name
                                 asg_node = Node(
-                                    address=asg_address,
+                                    address=asg_name,
                                     node_type=NodeType.DEPLOYMENT,
                                     profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                                     protocol=PROTOCOL_TCP,
                                     protocol_mux=tg_port,
                                     provider='aws',
-                                    service_name=asg_name
+                                    service_name=lb_app_tag
                                 )
                                 asg_nodes[f"ASG_{asg_name}"] = asg_node
                                 database.save_node(asg_node)

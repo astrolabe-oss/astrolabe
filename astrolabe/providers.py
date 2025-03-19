@@ -16,7 +16,7 @@ import configargparse
 
 from astrolabe import constants, logs
 from astrolabe.network import Hint
-from astrolabe.node import NodeTransport
+from astrolabe.node import Node, NodeTransport
 from astrolabe.plugin_core import PluginInterface, PluginFamilyRegistry
 from astrolabe.profile_strategy import ProfileStrategy
 
@@ -38,6 +38,12 @@ class ProviderInterface(PluginInterface):
         :return:
         """
         return False
+
+    async def inventory(self) -> None:
+        """
+        Optionally perform inventory on this providers resources.  Skipped with cli arg --seeds-only
+        """
+        return None
 
     async def open_connection(self, address: str) -> Optional[type]:
         """
@@ -94,7 +100,7 @@ class ProviderInterface(PluginInterface):
         del hint
         return []
 
-    async def profile(self, address: str, pfss: List[ProfileStrategy], connection: Optional[type])\
+    async def profile(self, node: Node, pfss: List[ProfileStrategy], connection: Optional[type])\
             -> List[NodeTransport]:
         """
         Discover provider for downstream services using ProfileStrategies.  Default response when subclassing will be a
@@ -109,11 +115,22 @@ class ProviderInterface(PluginInterface):
 
         :return: the children as a list of Node()s
         """
-        del address, connection, pfss
+        del node, connection, pfss
         return []
 
 
 _provider_registry = PluginFamilyRegistry(ProviderInterface)
+
+
+async def perform_inventory():
+    if constants.ARGS.seeds_only:
+        logs.logger.info("Skipping inventory due to cli arg --seeds-only")
+        return
+
+    for provider in [p for p in _provider_registry.get_registered_plugins()
+                     if p.ref() not in (constants.ARGS.disable_providers or [])]:
+        # provider: ProviderInterface
+        await provider.inventory()
 
 
 def parse_provider_args(argparser: configargparse.ArgParser, disabled_provider_refs: Optional[List[str]] = None):

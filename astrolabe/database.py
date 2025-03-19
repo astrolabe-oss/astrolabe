@@ -100,16 +100,17 @@ def _merge_compute(node: Node, props: dict) -> platdb.PlatDBNode:
     props['platform'] = 'k8s' if node.containerized else 'ipv4'
     compute = platdb.Compute.create_or_update(props)[0]
 
-    if node.service_name:
-        app = platdb.Application.create_or_update({"name": node.service_name})[0]
-        compute.applications.connect(app)
-
     return compute
 
 
 def _merge_deployment(node: Node, props: dict) -> platdb.PlatDBNode:  # pylint:disable=unused-argument
-    props['deployment_type'] = 'k8s_deployment' if node.provider == 'k8s' else 'auto_scaling_group'
+    props['deployment_type'] = 'k8s_deployment' if node.provider == 'k8s' else 'aws_asg'
     deployment = platdb.Deployment.create_or_update(props)[0]
+
+    if node.service_name:
+        app = platdb.Application.create_or_update({"name": node.service_name})[0]
+        deployment.application.replace(app)
+        app.deployments.connect(deployment)
 
     return deployment
 
@@ -152,6 +153,59 @@ def connect_nodes(parent_node: Node, child_node: Node):
     raise Exception(f'The parent in connect node is not being handled it is a {parent.__class__}')
 
 
+def _connect_compute(parent: platdb.PlatDBNode, child: platdb.PlatDBNode):
+    if isinstance(child, platdb.Compute):
+        parent.downstream_computes.connect(child)
+        parent.upstream_computes.connect(child)
+        return
+
+    if isinstance(child, platdb.Resource):
+        for parent_deployment in parent.deployment.all():
+            parent_deployment.resources.connect(child)
+            child.upstreams.connect(parent_deployment)
+        return
+
+    if isinstance(child, platdb.Deployment):
+        for parent_deployment in parent.deployment.all():
+            parent_deployment.downstream_deployments.connect(child)
+            child.upstream_deployments.connect(parent_deployment)
+        return
+
+    if isinstance(child, platdb.TrafficController):
+        for parent_deployment in parent.deployment.all():
+            parent_deployment.downstream_traffic_ctrls.connect(child)
+            child.upstream_deployments.connect(parent_deployment)
+        return
+
+    raise Exception(  # pylint:disable=broad-exception-raised
+        f'The child of the compute is not handled. It is a {child.__class__} :: {child}'
+    )
+
+
+def _connect_deployment(parent: platdb.Deployment, child: platdb.PlatDBNode):
+    if isinstance(child, platdb.Compute):
+        parent.computes.connect(child)
+        child.deployment.replace(parent)
+        return
+
+    raise Exception(  # pylint:disable=broad-exception-raised
+        'The child in _connect_deployment is not being handled. '
+        f'It is of type {child.__class__} :: {child}'
+    )
+
+
+def _connect_traffic_controller(parent: platdb.TrafficController, child: platdb.PlatDBNode):
+    if isinstance(child, platdb.Deployment):
+        parent.downstream_deployments.replace(child)
+        child.traffic_controller.replace(parent)
+        return
+
+    raise Exception(  # pylint:disable=broad-exception-raised
+        'The child in _connect_traffic_controller is not being handled. '
+        f'It is of type {child.__class__} :: {child}'
+    )
+
+
 # pylint:disable=broad-exception-raised
 def get_connections(node: Node) -> Dict[str, Node]:
     """This method is directional - we are only getting downstream nodes from this node"""
@@ -171,8 +225,6 @@ def get_connections(node: Node) -> Dict[str, Node]:
         return _get_deployment_connections(platdb_node)
     elif isinstance(platdb_node, platdb.Compute):
         return _get_compute_connections(platdb_node)
-    elif isinstance(platdb_node, platdb.Application):
-        return _get_application_connections(platdb_node)
     else:
         raise Exception(f"Unsupported node type for getting connections: {type(platdb_node).__name__}")
 
@@ -181,7 +233,7 @@ def _get_traffic_controller_connections(node: platdb.TrafficController) -> Dict[
     """Since this is directional - we only want connections in the directions requests flow through
         load balancers... as in: the downstream ASGs, deployments, etc..."""
     connections = {}
-    for deployment in node.deployments.all():
+    for deployment in node.downstream_deployments.all():
         connected_node = _neomodel_to_node(deployment)
         _add_connection(connections, connected_node)
     return connections
@@ -209,25 +261,19 @@ def _get_compute_connections(node: platdb.Compute) -> Dict[str, Node]:
        Also - until we have UNKNOWN Node type... sometimes compute have a downstream Compute which is our
        current (incorrect) default Node type"""
     connections = {}
-    for compute_to in node.compute_to.all():
-        connected_node = _neomodel_to_node(compute_to)
+    for downstream_compute in node.downstream_computes.all():
+        connected_node = _neomodel_to_node(downstream_compute)
         _add_connection(connections, connected_node)
-    # Applications are "virtual" so we need to step through them here
-    for app in node.applications.all():
-        connections.update(_get_application_connections(app))
-    return connections
-
-
-def _get_application_connections(node: platdb.Application) -> Dict[str, Node]:
-    """Directionally - we only want the resources and computes which applications call into, not the deployments and
-       or computes which power them"""
-    connections = {}
-    for resource in node.resources.all():
-        connected_node = _neomodel_to_node(resource)
-        _add_connection(connections, connected_node)
-    for traffic_controller in node.traffic_controllers.all():
-        connected_node = _neomodel_to_node(traffic_controller)
-        _add_connection(connections, connected_node)
+    for deployment in node.deployment.all():
+        for resource in deployment.resources.all():
+            d_connected_node = _neomodel_to_node(resource)
+            _add_connection(connections, d_connected_node)
+        for d_deployment in deployment.downstream_deployments.all():
+            d_connected_node = _neomodel_to_node(d_deployment)
+            _add_connection(connections, d_connected_node)
+        for d_tc in deployment.downstream_traffic_ctrls.all():
+            d_connected_node = _neomodel_to_node(d_tc)
+            _add_connection(connections, d_connected_node)
     return connections
 
 
@@ -254,53 +300,6 @@ def _load_node_from_neo4j(node: Node) -> Optional[platdb.PlatDBNode]:
         obj = cls.nodes.get(**{'dns_names': node.aliases})
 
     return obj
-
-
-def _connect_compute(parent: platdb.PlatDBNode, child: platdb.PlatDBNode):
-    if isinstance(child, platdb.Compute):
-        parent.compute_to.connect(child)
-        parent.compute_from.connect(child)
-        return
-
-    if isinstance(child, platdb.Resource):
-        for parent_app in parent.applications.all():
-            parent_app.resources.connect(child)
-            child.applications.connect(parent_app)
-        return
-
-    if isinstance(child, platdb.TrafficController):
-        for parent_app in parent.applications.all():
-            parent_app.traffic_controllers.connect(child)
-            child.applications.connect(parent_app)
-        return
-
-    raise Exception(  # pylint:disable=broad-exception-raised
-        f'The child of the compute is not a compute it is a {child.__class__} :: {child}'
-    )
-
-
-def _connect_deployment(parent: platdb.Deployment, child: platdb.PlatDBNode):
-    if isinstance(child, platdb.Compute):
-        parent.computes.connect(child)
-        child.deployments.connect(parent)
-        return
-
-    raise Exception(  # pylint:disable=broad-exception-raised
-        'The child in _connect_deployment is not being handled. '
-        f'It is of type {child.__class__} :: {child}'
-    )
-
-
-def _connect_traffic_controller(parent: platdb.TrafficController, child: platdb.PlatDBNode):
-    if isinstance(child, platdb.Deployment):
-        parent.deployments.connect(child)
-        child.traffic_controllers.connect(parent)
-        return
-
-    raise Exception(  # pylint:disable=broad-exception-raised
-        'The child in _connect_traffic_controller is not being handled. '
-        f'It is of type {child.__class__} :: {child}'
-    )
 
 
 def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:

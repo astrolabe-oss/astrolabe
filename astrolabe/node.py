@@ -44,7 +44,7 @@ class NodeTransport:
     """
     profile_strategy_name: str  # name of profile strategy used to discover node
     provider: str
-    protocol: 'network.Protocol'  # NOQA  (string import for type hint to avoid circular dependency)
+    protocol: 'network.Protocol'  # noqa: F821  # Avoid circular import
     protocol_mux: str
     address: Optional[str] = None
     from_hint: bool = False
@@ -63,7 +63,7 @@ class NodeTransport:
 class Node:
     profile_strategy_name: str  # name of the profile strategy used to determine, for debugging
     provider: str
-    protocol: 'network.Protocol' = None  # NOQA  (string import for type hint to avoid circular dependency)
+    protocol: 'network.Protocol' = None  # noqa: F821  # Avoid circular import
     protocol_mux: str = None
     containerized: bool = False
     from_hint: bool = False

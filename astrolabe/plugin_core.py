@@ -122,3 +122,6 @@ class PluginFamilyRegistry:
 
     def get_registered_plugin_refs(self) -> List[str]:
         return list(self._plugin_registry.keys())
+
+    def get_registered_plugins(self) -> List[PluginInterface]:
+        return list(self._plugin_registry.values())

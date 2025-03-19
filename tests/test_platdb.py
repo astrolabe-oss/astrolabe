@@ -7,27 +7,20 @@
 # DB connection objects that were yielded to the function.
 # pylint: disable=unused-argument
 
-import datetime
-
 import pytest
 
-from neomodel import ZeroOrMore
+from neomodel import ZeroOrMore, ZeroOrOne
 
 from astrolabe.platdb import (PlatDBNode,
                               StructuredNode,
                               Application,
-                              CDN,
                               Compute,
                               Deployment,
-                              EgressController,
-                              Insights,
-                              Repo,
                               Resource,
                               TrafficController)
 
 neo4j_db_fixtures = [
     (Application, {"name": "app1"}, {"name": "new_app1"}),
-    (CDN, {"name": "cdn1"}, {"name": "new_cdn1"}),
     (Compute, {
         "platform": "ec2",
         "address": "1.2.3.4",
@@ -51,19 +44,6 @@ neo4j_db_fixtures = [
         "protocol": "HTTP",
         "protocol_multiplexor": "443"
     }),
-    (EgressController, {"name": "egress1"}, {"name": "new_egress1"}),
-    (Insights, {
-        "attribute_name": "attr1",
-        "recommendation": "recommendation1",
-        "starting_state": "state1",
-        "upgraded_state": "state2"
-    }, {
-        "attribute_name": "new_attr1",
-        "recommendation": "new_recommendation1",
-        "starting_state": "new_state1",
-        "upgraded_state": "new_state2"
-    }),
-    (Repo, {"name": "repo1"}, {"name": "new_repo1"}),
     (Resource, {
         "name": "resource1",
         "address": "1.2.3.4",
@@ -164,28 +144,13 @@ def test_update_object_exists(mocker):
     assert obj.relationship == rel_update
 
 
-def test_insights_save(mocker):
-    # arrange
-    insight = Insights()
-    mocker.patch.object(PlatDBNode, "save")
-
-    # act
-    insight.save()
-
-    # assert
-    assert isinstance(insight.updated, datetime.datetime)
-    assert isinstance(insight.updated.year, int)
-    assert isinstance(insight.updated.month, int)
-    assert isinstance(insight.updated.day, int)
-    assert insight.updated.tzinfo is datetime.timezone.utc
-
-
 @pytest.mark.parametrize('cls,attrs,updated_attrs', neo4j_db_fixtures)
 def test_platdb_node_to_dict_for_all_classes(mocker, cls, attrs, updated_attrs):
     obj = cls(**attrs)
     rel = []
 
     mocker.patch.object(ZeroOrMore, 'all', return_value=rel)
+    mocker.patch.object(ZeroOrOne, 'all', return_value=rel)
 
     platdb_ht = obj.platdbnode_to_dict()
 

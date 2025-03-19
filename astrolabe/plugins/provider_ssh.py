@@ -78,7 +78,7 @@ class ProviderSSH(ProviderInterface):
         logs.logger.debug("Running sidecars for address %s", address)
         await _sidecar_lookup_hostnames(address, connection)
 
-    async def profile(self, address: str, pfss: List[ProfileStrategy], connection: SSHClientConnection)\
+    async def profile(self, node: Node, pfss: List[ProfileStrategy], connection: SSHClientConnection)\
             -> List[NodeTransport]:
         node_transports = []
         for pfs in pfss:
@@ -92,7 +92,7 @@ class ProviderSSH(ProviderInterface):
             if response.stdout.strip().startswith('ERROR:'):
                 raise Exception("CRAWL ERROR: %s" %  # pylint: disable=broad-exception-raised
                                 response.stdout.strip().replace("\n", "\t"))
-            i_node_transports = parse_profile_strategy_response(response.stdout.strip(), address, pfs)
+            i_node_transports = parse_profile_strategy_response(response.stdout.strip(), node.address, pfs)
             node_transports.extend(i_node_transports)
         return node_transports
 

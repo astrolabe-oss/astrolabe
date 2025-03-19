@@ -216,7 +216,7 @@ def _export_node_errs_warns(node: Node, error_prefix: str, out):
         'CONNECT_SKIPPED': f"service detected on {node.protocol.ref}:{node.protocol_mux}, however name discovery"
                            f"and discovering skipped by configuration!",
         'NULL_ADDRESS': f"service '{node.service_name}' detected but an instance address is not available to discover!",
-        'TIMEOUT': f"SSH timeout connecting to service:'{node.service_name}' at address: '{node.address}'",
+        'TIMEOUT': f"Timeout connecting to service:'{node.service_name}' at address: '{node.address}'",
         'CYCLE': f"service '{node.service_name}' discovered as a parent of itself!",
         'PROFILE_SKIPPED': f"service '{node.service_name}' discovered but discovering skipped by configuration"
     }

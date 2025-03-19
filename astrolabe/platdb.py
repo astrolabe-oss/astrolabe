@@ -15,18 +15,22 @@ from typing import Any, Optional
 import neo4j
 
 from neo4j import GraphDatabase
-from neomodel import (
+from neomodel import (    # pylint: disable=unused-import
     ArrayProperty,
     DoesNotExist,
     DateTimeProperty,
-    FloatProperty,
     JSONProperty,
     RelationshipFrom,
     RelationshipTo,
     StringProperty,
     StructuredNode,
+    ZeroOrOne,
+    ZeroOrMore,
     db
 )
+
+# Q is required for neomodel queries to work correctly, even if not directly referenced in this file
+from neomodel import Q  # noqa: F401 pylint: disable=unused-import
 
 from neomodel.properties import Property
 
@@ -181,6 +185,7 @@ class PlatDBNode(StructuredNode):
 
 class PlatDBDNSNode(PlatDBNode):
     __abstract_node__ = True
+    address = StringProperty(unique_index=True, null=True, required=False)
     dns_names = ArrayProperty(StringProperty(), unique_index=True, null=True)
 
     # pylint:disable=arguments-differ
@@ -229,102 +234,56 @@ class PlatDBDNSNode(PlatDBNode):
         return [existing_resource]
 
 
+class PlatDBNetworkNode(PlatDBNode):
+    __abstract_node__ = True
+    """Base class for nodes with network properties."""
+    name = StringProperty()
+    address = StringProperty(required=True)
+    protocol = StringProperty()
+    protocol_multiplexor = StringProperty()
+
+
 class Application(PlatDBNode):
     name = StringProperty(unique_index=True)
 
-    application_to = RelationshipTo('Application', 'CALLS')
-    application_from = RelationshipFrom('Application', 'CALLED_BY')
-    compute = RelationshipFrom('Compute', 'RUNS')
-    egress_controller = RelationshipTo('EgressController', 'DEPENDS_ON')
-    insights = RelationshipFrom('Insights', 'APPLIES_TO')
-    repo = RelationshipFrom('Repo', 'STORES')
-    resources = RelationshipTo('Resource', 'USES')
-    traffic_controllers = RelationshipTo('TrafficController', 'DEPENDS_ON')
+    # Application-Deployment relationships
+    deployments = RelationshipTo('Deployment', 'IMPLEMENTED_BY', cardinality=ZeroOrMore)
 
 
-class CDN(PlatDBNode):
-    name = StringProperty()
-    traffic_controllers = RelationshipTo('TrafficController', 'DEPENDS_ON')
-
-
-class Compute(PlatDBNode):
-    address = StringProperty(required=True)
-
-    platform = StringProperty()
-    protocol = StringProperty()
-    protocol_multiplexor = StringProperty()
-
-    name = StringProperty()
-    compute_to = RelationshipTo('Compute', 'CALLS')
-    compute_from = RelationshipFrom('Compute', 'CALLED_BY')
-    applications = RelationshipTo('Application', 'RUNS')
-    deployments = RelationshipTo('Deployment', 'PROVIDES')
-
-
-class Deployment(PlatDBNode):
+class Deployment(PlatDBNetworkNode):
     name = StringProperty(unique_index=True)
     deployment_type = StringProperty(choices={
-        "auto_scaling_group": "Auto Scaling Group",
-        "target_group": "Target Group",
+        "aws_asg": "AWS Auto Scaling Group",
         "k8s_deployment": "K8s Deployment"})
-    traffic_controllers = RelationshipTo('TrafficController', 'PROVIDES')
-    computes = RelationshipTo('Compute', 'USES')
-    address = StringProperty(required=True)
-    protocol = StringProperty(required=True)
-    protocol_multiplexor = StringProperty(required=True)
-
-
-class EgressController(PlatDBNode):
-    name = StringProperty()
-    applications = RelationshipFrom('Application', 'DEPENDS_ON')
-
-
-class Insights(PlatDBNode):
-    """Assuming id is managed internally by Neo4j as a unique identifier
-    UniqueIdProperty can be used to generate a UUID but isn't a direct 
-    analogue of an auto_increment field. For a direct MySQL 'id' 
-    equivalent, you can use an IntegerProperty and manage it manually.
-    """
-    attribute_name = StringProperty(required=True)
-    recommendation = StringProperty(required=True)
-    starting_state = StringProperty(required=True)
-    upgraded_state = StringProperty(required=True)
-    min_improvement = FloatProperty()
-    max_improvement = FloatProperty()
-    note = StringProperty()
-
-    # Automatically set to current date & time when created
-    created = DateTimeProperty(default_now=True)
-
-    # Automatically updated to current date & time when node is saved
-    updated = DateTimeProperty(default_now=True)
 
     # Relationships
-    applications = RelationshipTo('Application', 'APPLIES_TO')
-
-    def save(self, *args, **kwargs):
-        # Update the 'updated' property to current time when saving
-        self.updated = datetime.datetime.now(datetime.timezone.utc)
-        return super().save(*args, **kwargs)
-
-
-class Repo(PlatDBNode):
-    name = StringProperty()
-    applications = RelationshipTo('Application', 'STORES')
+    application = RelationshipTo('Application', 'IMPLEMENTS', cardinality=ZeroOrOne)
+    computes = RelationshipTo('Compute', 'HAS_MEMBER', cardinality=ZeroOrMore)
+    traffic_controller = RelationshipTo('TrafficController', 'FORWARDED_FROM',
+                                        cardinality=ZeroOrOne)
+    downstream_traffic_ctrls = RelationshipTo('TrafficController', 'CALLS', cardinality=ZeroOrMore)
+    downstream_deployments = RelationshipTo('Deployment', 'CALLS', cardinality=ZeroOrMore)
+    upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
+    resources = RelationshipTo('Resource', 'CALLS', cardinality=ZeroOrMore)
 
 
-class Resource(PlatDBDNSNode):
-    address = StringProperty(unique_index=True, null=True)
-    applications = RelationshipFrom('Application', 'USED_BY')
-    name = StringProperty()
-    protocol = StringProperty()
-    protocol_multiplexor = StringProperty()
+class Compute(PlatDBNetworkNode):
+    platform = StringProperty()
+
+    # Relationships
+    deployment = RelationshipTo('Deployment', 'MEMBER_OF', cardinality=ZeroOrOne)
+
+    # I Think we need to get rid of or refactor this, and corresponding database.py usages
+    downstream_computes = RelationshipTo('Compute', 'CALLS', cardinality=ZeroOrMore)
+    upstream_computes = RelationshipFrom('Compute', 'CALLED_BY', cardinality=ZeroOrMore)
 
 
-class TrafficController(PlatDBDNSNode):
-    address = StringProperty()
-    applications = RelationshipFrom('Application', 'CALLED_BY')
-    deployments = RelationshipTo('Deployment', 'USED_BY')
-    name = StringProperty(unique_index=True)
-    protocol = StringProperty()
-    protocol_multiplexor = StringProperty()
+class TrafficController(PlatDBDNSNode, PlatDBNetworkNode):
+    # Relationships
+    downstream_deployments = RelationshipTo('Deployment', 'FORWARDS_TO', cardinality=ZeroOrOne)
+    upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
+
+
+class Resource(PlatDBDNSNode, PlatDBNetworkNode):
+    # Relationships
+    upstreams = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)

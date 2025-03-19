@@ -1,6 +1,8 @@
 # pylint: disable=unused-argument,too-many-arguments,too-many-positional-arguments
 
 import datetime
+
+import neomodel
 import pytest
 
 
@@ -64,6 +66,16 @@ def mock_deployment_node(protocol_fixture):
 @pytest.fixture(autouse=True)
 def mock_neo4j_connection_open(mocker):
     return mocker.patch.object(database.platdb.Neo4jConnection, 'open', return_value=None)
+
+
+@pytest.fixture(autouse=True)
+def mock_neo4j_replace(mocker):
+    return mocker.patch.object(neomodel.RelationshipManager, 'replace', return_value=None)
+
+
+@pytest.fixture(autouse=True)
+def mock_neo4j_connect(mocker):
+    return mocker.patch.object(neomodel.RelationshipManager, 'connect', return_value=None)
 
 
 @pytest.fixture

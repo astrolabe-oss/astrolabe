@@ -41,6 +41,8 @@ class ProviderKubernetes(ProviderInterface):
         await config.load_kube_config()
         self.api = client.CoreV1Api()
         self.ws_api = client.CoreV1Api(WsApiClient(configuration=client.configuration.Configuration.get_default()))
+
+    async def inventory(self):
         await self._inventory_services()
 
     async def del_async(self):
@@ -115,27 +117,27 @@ class ProviderKubernetes(ProviderInterface):
                     node.address = ip_addr
                     database.save_node(node)
 
-    async def profile(self, address: str, pfss: List[ProfileStrategy], _: Optional[type]) -> List[NodeTransport]:
+    async def profile(self, node: Node, pfss: List[ProfileStrategy], _: Optional[type]) -> List[NodeTransport]:
         # profile k8s service load balancer
-        if database.node_is_k8s_load_balancer(address):
+        if database.node_is_k8s_load_balancer(node.address):
             # k8s lbs are pre-profiled during inventory
             logs.logger.debug("Profile of k8s load balancer (%s) requested "
-                              "and skipped due to pre-profiling during inventory", address)
+                              "and skipped due to pre-profiling during inventory", node.address)
             return []
 
         # profile k8s service
-        if database.node_is_k8s_service(address):
-            logs.logger.debug("Profiling address %s as k8s service", address)
-            return await self._profile_k8s_service(address)
+        if database.node_is_k8s_service(node.address):
+            logs.logger.debug("Profiling address %s as k8s service", node.address)
+            return await self._profile_k8s_service(node.service_name)
 
         # profile pod
-        logs.logger.debug("Profiling address %s as k8s pod", address)
-        return await self._profile_pod(address, pfss)
+        logs.logger.debug("Profiling address %s as k8s pod", node.address)
+        return await self._profile_pod(node.address, pfss)
 
-    async def _profile_k8s_service(self, address: str) -> List[NodeTransport]:
+    async def _profile_k8s_service(self, svc_name: str) -> List[NodeTransport]:
         # k8s_service_pfs = profile_strategy.
         try:
-            service = await self.api.read_namespaced_service(address, namespace="default")
+            service = await self.api.read_namespaced_service(svc_name, namespace="default")
             selector = service.spec.selector
             if not selector:
                 return []
@@ -155,7 +157,7 @@ class ProviderKubernetes(ProviderInterface):
                 )
                 node_transports.append(node_transport)
                 logs.logger.debug("Found %d profile results for %s, profile strategy: \"%s\"..",
-                                  len(node_transports), address, '_profile_k8s_service')
+                                  len(node_transports), svc_name, '_profile_k8s_service')
             return node_transports
 
         except ApiException as exc:
@@ -233,9 +235,8 @@ class ProviderKubernetes(ProviderInterface):
                 ports = svc.spec.ports[0]
                 ingress = svc.status.load_balancer.ingress
                 lb_address = ingress[0].hostname or ingress[0].ip
-                lb_name = svc.metadata.name
-                k8s_service_address = svc.metadata.name
-                k8s_service_name = f"{svc.metadata.name}-service"
+                k8s_service_address = svc.spec.cluster_ip
+                k8s_service_name = svc.metadata.name
                 k8s_service_node = Node(
                     address=k8s_service_address,
                     node_type=NodeType.DEPLOYMENT,
@@ -251,7 +252,7 @@ class ProviderKubernetes(ProviderInterface):
                     provider='k8s',
                     protocol=PROTOCOL_TCP,
                     protocol_mux=ports.port,
-                    service_name=lb_name,
+                    service_name=k8s_service_name,
                     aliases=[lb_address]
                 )
                 database.save_node(k8s_service_node)

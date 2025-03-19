@@ -141,7 +141,7 @@ async def test_discover_case_connection_opened_and_passed(tree, provider_mock, p
     # assert
     provider_mock.open_connection.assert_called_once_with(list(tree.values())[0].address)
     provider_mock.lookup_name.assert_called_once_with(list(tree.values())[0].address, stub_connection)
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [ps_mock], stub_connection)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [ps_mock], stub_connection)
 
 
 @pytest.mark.asyncio
@@ -292,44 +292,6 @@ async def test_discover_case_do_not_profile_node_with_errors(tree, provider_mock
     provider_mock.profile.assert_not_called()
 
 
-# pytest:disable=too-many-positional-arguments
-@pytest.mark.parametrize('name1,name2,provider1,provider2,uses_cache', [
-    ('service_A', 'service_A', 'prov_A', 'prov_A', True),
-    ('service_A', 'service_B', 'prov_A', 'prov_A', False),
-    ('service_A', 'service_A', 'prov_A', 'prov_B', False)
-])
-@pytest.mark.asyncio
-async def test_discover_case_profile_caching(tree, node_fixture_factory, provider_mock, ps_mock, protocol_mock,
-                                             name1, name2, provider1, provider2, uses_cache):
-    """Validate the calls to profile for the same service_name and provider are cached.  Caching is only guaranteed for
-    different depths in the tree since siblings execute concurrently - and so we have to test a tree with more
-    depth > 1
-      node1
-        └> node2
-            └> node2_child (we are testing whether this node is cached based on node1)
-
-    """
-    # arrange
-    node1 = list(tree.values())[0]
-    node1.provider = provider1
-    node2 = node_fixture_factory()
-    node2.address = 'foo'  # must be different than list(tree.values())[0].address to avoid caching
-    node2_child = node.NodeTransport('PS_NAME', provider2, protocol_mock, 'foo_mux', 'bar_address')
-    tree['dummy2'] = node2
-    provider_mock.lookup_name.side_effect = [name1, 'node_2_service_name', name2]
-    provider_mock.profile.side_effect = [[], [node2_child], []]
-    ps_mock.providers = [provider_mock.ref()]
-    ps_mock.determine_child_provider.return_value = provider2
-
-    # act
-    await discover.discover(tree, [])
-    await _wait_for_all_tasks_to_complete()
-
-    # assert
-    expected_call_count = 2 if uses_cache else 3
-    assert provider_mock.profile.call_count == expected_call_count
-
-
 @pytest.mark.asyncio
 async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_args_mock, ps_mock_autouse):
     """Timeout is respected during profile and results in a TIMEOUT error"""
@@ -466,7 +428,8 @@ async def test_discover_case_children_without_address_not_profiled(tree, provide
     child_nt = node.NodeTransport('PS_NAME', provider_mock.ref(), protocol_mock, 'dummy_protocol_mux')
     provider_mock.lookup_name.return_value = 'dummy'
     provider_mock.profile.return_value = [child_nt]
-    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
+    # pylint:disable=protected-access
+    discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
 
     # TODO: feature is broken where we can save node w/out address or alias (protocol_mux only)
     #        remove this pytest.raises once this is fixed
@@ -475,7 +438,7 @@ async def test_discover_case_children_without_address_not_profiled(tree, provide
         await discover.discover(tree, [])
         await _wait_for_all_tasks_to_complete()
         # assert
-        assert 1 == discover_spy.call_count
+        assert 1 == discover_node_spy.call_count
 
 
 # Hints
@@ -531,7 +494,8 @@ async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mock
     # arrange
     child_nt = node.NodeTransport('PS_NAME', provider_mock.ref(), protocol_mock, 'foo_mux', 'dummy_address')
     provider_mock.profile.return_value = [child_nt]
-    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
+    # pylint:disable=protected-access
+    discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
     mocker.patch('astrolabe.network.skip_protocol_mux', return_value=True)
 
     # act
@@ -542,7 +506,7 @@ async def test_discover_case_profile_skip_protocol_mux(tree, provider_mock, mock
     test_node = list(tree.values())[0]
     children = _fake_database.get_connections(test_node)
     assert len(children) == 0
-    assert discover_spy.call_count == 1
+    assert discover_node_spy.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -551,7 +515,8 @@ async def test_discover_case_profile_skip_address(tree, provider_mock, mocker, p
     # arrange
     child_nt = node.NodeTransport('PS_NAME', provider_mock.ref(), protocol_mock, 'foo_mux', 'dummy_address')
     provider_mock.profile.return_value = [child_nt]
-    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
+    # pylint:disable=protected-access
+    discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
     mocker.patch('astrolabe.network.skip_address', return_value=True)
 
     # act
@@ -560,7 +525,7 @@ async def test_discover_case_profile_skip_address(tree, provider_mock, mocker, p
 
     # assert
     assert len(list(tree.values())[0].children) == 0
-    assert discover_spy.call_count == 1
+    assert discover_node_spy.call_count == 1
 
 
 # respect CLI args
@@ -577,7 +542,7 @@ async def test_discover_case_respect_cli_skip_protocols(tree, provider_mock, ps_
     # act
     await discover.discover(tree, [])
     # assert
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [], mocker.ANY)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [], mocker.ANY)
 
 
 @pytest.mark.asyncio
@@ -590,7 +555,7 @@ async def test_discover_case_respect_cli_disable_providers(tree, provider_mock, 
     child_nt = node.NodeTransport('PS_NAME', disable_this_provider, protocol_mock, 'dummy_mux', 'dummy_address')
     provider_mock.lookup_name.return_value = 'bar_name'
     provider_mock.profile.return_value = [child_nt]
-    discover_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
+    discover_node_spy = mocker.patch('astrolabe.discover.discover', side_effect=discover.discover)
 
     # act
     await discover.discover(tree, [])
@@ -598,7 +563,7 @@ async def test_discover_case_respect_cli_disable_providers(tree, provider_mock, 
 
     # assert
     assert 0 == len(list(tree.values())[0].children)
-    assert 1 == discover_spy.call_count
+    assert 1 == discover_node_spy.call_count
 
 
 @pytest.mark.asyncio
@@ -643,6 +608,39 @@ async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args
     assert child.protocol_mux != child_protocol_mux
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('seeds_only,expected_profile_calls,expected_discover_node_calls', [
+    (True, 1, 1),  # When seeds_only=True: profile seed only, no _discover_node calls for children
+    (False, 2, 2)  # When seeds_only=False: profile seed and child, _discover_node called for both
+])
+async def test_discover_case_respect_cli_seeds_only(tree, provider_mock, cli_args_mock, mocker, protocol_mock,
+                                                    seeds_only, expected_profile_calls, expected_discover_node_calls):
+    """With --seeds-only=True, we only profile the seed nodes and not any discovered children.
+       With --seeds-only=False, we profile both seed nodes and discovered children."""
+    # arrange
+    cli_args_mock.seeds_only = seeds_only
+    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref(), protocol_mock, 'dummy_protocol_mux', 'dummy_address')
+    provider_mock.lookup_name.side_effect = ['seed_name', 'child_name']
+    provider_mock.profile.side_effect = [[child_nt], []]
+    # pylint:disable=protected-access
+    discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
+
+    # act
+    await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
+
+    # assert
+    # Verify the correct number of profile calls were made
+    assert provider_mock.profile.call_count == expected_profile_calls
+
+    # Verify the child was added to the tree
+    children = _fake_database.get_connections(list(tree.values())[0])
+    assert len(children) == 1
+
+    # Verify _discover_node was called the expected number of times
+    assert discover_node_spy.call_count == expected_discover_node_calls
+
+
 # respect profile_strategy / network configurations
 @pytest.mark.asyncio
 async def test_discover_case_respect_ps_filter_service_name(tree, provider_mock, ps_mock, mocker):
@@ -656,7 +654,7 @@ async def test_discover_case_respect_ps_filter_service_name(tree, provider_mock,
 
     # assert
     ps_mock.filter_service_name.assert_called_once_with(list(tree.values())[0].service_name)
-    provider_mock.profile.assert_called_once_with(list(tree.values())[0].address, [], mocker.ANY)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [], mocker.ANY)
 
 
 @pytest.mark.asyncio

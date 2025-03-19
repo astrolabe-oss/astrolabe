@@ -55,6 +55,45 @@ def test_init_case_builtin_providers_disableable(cli_args_mock, builtin_provider
         assert 1 == e_info.value.code
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('seeds_only,inventory_called', [
+    (True, False),  # When seeds_only=True: inventory should be skipped
+    (False, True)  # When seeds_only=False: inventory should be called
+])
+async def test_perform_inventory_case_respect_cli_seeds_only(
+        cli_args_mock, mocker, seeds_only, inventory_called
+):
+    """
+    When --seeds-only is set to True, perform_inventory should skip calling provider.inventory().
+    When --seeds-only is False, perform_inventory should call provider.inventory() for each enabled provider.
+    """
+    # arrange
+    cli_args_mock.seeds_only = seeds_only
+    cli_args_mock.disable_providers = []
+
+    # Create a mock provider
+    mock_provider = mocker.MagicMock(spec=providers.ProviderInterface)
+    mock_provider.ref.return_value = "mock_provider"
+
+    # Mock the registry to return our mock provider
+    mock_get_registered = mocker.patch.object(
+        providers._provider_registry,  # pylint:disable=protected-access
+        'get_registered_plugins',
+        return_value=[mock_provider]
+    )
+
+    # act
+    await providers.perform_inventory()
+
+    # assert
+    if inventory_called:
+        mock_get_registered.assert_called_once()
+        mock_provider.inventory.assert_called_once()
+    else:
+        mock_get_registered.assert_not_called()
+        mock_provider.inventory.assert_not_called()
+
+
 @pytest.mark.parametrize('profile_strategy_response', ['', 'foo bar'])
 def test_parse_profile_strategy_response_case_no_data_lines(profile_strategy_response, profile_strategy_fixture):
     # arrange/act/assert

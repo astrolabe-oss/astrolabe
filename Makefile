@@ -2,10 +2,10 @@ DOCKER_COMPOSE=docker-compose \
 	-f tests_integration/neo4j_ephemeral_db/docker-compose.yml
 
 test:
-	@pytest
+	@pytest tests
 
 coverage:
-	@pytest --cov --cov-fail-under=75 --cov-config .coveragerc
+	@pytest tests --cov --cov-fail-under=75 --cov-config .coveragerc
 
 lint:
 	@prospector --profile .prospector.yaml $(filter-out $@,$(MAKECMDGOALS))
