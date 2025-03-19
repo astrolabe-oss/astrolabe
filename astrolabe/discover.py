@@ -47,7 +47,7 @@ class DiscoveryException(Exception):
 
 
 # pylint:disable=too-many-locals
-async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noqa: C901
+async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noqa: C901, MC0001
     global discovery_ancestors  # pylint:disable=global-variable-not-assigned
     # SEED DATABASE
     for ref, node in seeds.items():
@@ -255,7 +255,7 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
 
 
 # pylint:disable=too-many-locals
-async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str, Node]:  # noqa: C901
+async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str, Node]:  # noqa: C901, MC0001
     provider_ref = node.provider
     service_name = node.service_name
 

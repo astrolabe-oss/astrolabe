@@ -165,7 +165,7 @@ class ProviderAWS(ProviderInterface):
                     logs.logger.info("Inventoried 1 AWS ElastiCache node: %s", node.debug_id())
 
     # pylint:disable=too-many-locals,too-many-nested-blocks
-    def _inventory_load_balancers(self):  # noqa: C901
+    def _inventory_load_balancers(self):  # noqa: C901, MC0001
         paginator = self.elb_client.get_paginator('describe_load_balancers')
         for page in paginator.paginate():
             for lb in page['LoadBalancers']:  # pylint:disable=invalid-name
