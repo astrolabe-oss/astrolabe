@@ -69,7 +69,7 @@ async def test_export_tree_case_child(tree_stubbed_with_child, capsys):
     # assert
     expected = ("\n"
                 f"{seed.service_name} [{seed.node_type.name}] ({seed.provider}:{seed.node_name})\n"
-                f" └--{child.protocol.ref}--> {child.service_name} [{child.node_type.name}] ({child.provider}:{child.node_name})\n")  # noqa: E501
+                f" └--{child.protocol.ref}--> {child.service_name} [{child.node_type.name}] ({child.provider}:{child.node_name})\n")  # noqa: E501  pylint:disable=line-too-long
     assert expected == captured.out
 
 
@@ -126,7 +126,7 @@ async def test_export_tree_case_child_errors(error, tree_stubbed_with_child, cap
     captured = capsys.readouterr()
 
     # assert
-    expected = f" └--{child.protocol.ref}--? \x1b[31m{{ERR:{error}}} \x1b[0m{child.address} [{child.node_type.name}] ({child.provider}:{child.node_name})"  # noqa: E501
+    expected = f" └--{child.protocol.ref}--? \x1b[31m{{ERR:{error}}} \x1b[0m{child.address} [{child.node_type.name}] ({child.provider}:{child.node_name})"  # noqa: E501  pylint:disable=line-too-long
     assert expected in captured.out
 
 
