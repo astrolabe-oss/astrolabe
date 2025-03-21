@@ -211,6 +211,6 @@ def _compile_node(node: Node, name: str, mermaid_graph: MermaidGraph) -> None:
 
 def _node_name(node: Node) -> str:
     name = node.service_name or "UNKNOWN"
-    clean_name = exporters.clean_service_name(name)
+    clean_name = exporters.clean_service_name(f"{name}-{node.node_name}")
     clean_name = f"{clean_name}-{node.provider}"
     return clean_name

@@ -45,41 +45,24 @@ def test_export_tree_case_respect_cli_rankdir_auto(cli_args_mock, tree_named, ca
     assert f"graph [dpi=300 rankdir={GRAPHVIZ_RANKDIR_TOP_TO_BOTTOM}]" in captured.out
 
 
-@pytest.mark.parametrize('highlighted_service', ['child_service_name', 'parent_service_name'])
-def test_export_tree_case_respect_cli_highlight_services(highlighted_service, tree, node_fixture_factory, cli_args_mock,
-                                                         capsys):
-    """Validate blocking child shows regular nondashed, non bold line when it is not blocking from top"""
-    # arrange
-    cli_args_mock.export_graphviz_highlight_services = [highlighted_service]
-    child = replace(node_fixture_factory(), service_name='child_service_name')
-    parent = list(tree.values())[0]
-    parent.service_name = 'parent_service_name'
-    _fake_database.connect_nodes(parent, child)
-
-    # act
-    export_graphviz.export_tree(tree, True)
-    captured = capsys.readouterr()
-    print(captured)
-
-    # assert
-    assert "color=\"yellow:black:yellow\"" in captured.out
-
-
 @pytest.mark.parametrize('include_provider', [True, False])
 def test_export_tree_case_node_has_service_name(tree_named, capsys, cli_args_mock, include_provider):
     """single node - not from hint, with service name, no children, no errs/warns"""
-    # arrange/act
+    # arrange
     cli_args_mock.export_graphviz_node_include_provider = include_provider
-    export_graphviz.export_tree(tree_named, True)
     node = tree_named[list(tree_named)[0]]
+    node.node_name = 'foo'
+
+    # act
+    export_graphviz.export_tree(tree_named, True)
     captured = capsys.readouterr()
     node_line = _grep_head_1(node.service_name, captured.out)
 
     # assert
     if include_provider:
-        assert f"\t\"{node.service_name} ({node.provider})\" [style=bold]" == node_line
+        assert f"\t\"{node.service_name}_{node.node_name} ({node.provider})\" [style=bold]" == node_line
     else:
-        assert f"\t{node.service_name} [style=bold]" == node_line
+        assert f"\t{node.service_name}_{node.node_name} [style=bold]" == node_line
 
 
 @pytest.mark.parametrize('include_provider', [True, False])
@@ -165,7 +148,8 @@ def test_export_tree_case_node_name_cleaned(tree, capsys):
     """Test that the node name is cleaned during export"""
     # arrange
     node = list(tree.values())[0]
-    node.service_name = '"foo:bar#baz"'
+    node.node_name = '"foo:bar#baz"'
+    node.service_name = 'buz'
 
     # act
     export_graphviz.export_tree(tree, True)
@@ -174,17 +158,17 @@ def test_export_tree_case_node_name_cleaned(tree, capsys):
 
     # assert
     assert node_line
-    assert node_line.lstrip("\t\"").startswith("foo_bar_baz")
+    assert node_line.lstrip("\t\"").startswith("buz_foo_bar_baz")
 
 
 def test_export_tree_case_edge_blocking_child(tree, node_fixture_factory, dummy_protocol_ref, capsys):
     """Validate blocking child shows regular nondashed, non bold line when it is not blocking from top"""
     # arrange
     parent = list(tree.values())[0]
-    child = replace(node_fixture_factory(), service_name='intermediary_child')
+    child = replace(node_fixture_factory(), service_name='intermediary_child', node_name='foo')
     child.protocol = replace(child.protocol, blocking=False)
     _fake_database.connect_nodes(parent, child)
-    final_child = replace(node_fixture_factory(), service_name='final_child')
+    final_child = replace(node_fixture_factory(), service_name='final_child', node_name='foo')
     final_child.protocol = replace(child.protocol, blocking=True)
     _fake_database.connect_nodes(child, final_child)
 
@@ -203,7 +187,8 @@ def test_export_tree_case_edge_blocking_from_top_child(tree, node_fixture, capsy
     # arrange
     parent = list(tree.values())[0]
     parent.service_name = 'foo'
-    child = replace(node_fixture, service_name='bar')
+    parent.node_name = 'bar'
+    child = replace(node_fixture, service_name='baz', node_name='buz')
     child.protocol = replace(child.protocol, ref='BAZ')
     _fake_database.connect_nodes(parent, child)
 

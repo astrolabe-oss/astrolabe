@@ -68,7 +68,7 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
     :return: None
     """
     await _wait_for_service_names(nodes, len(parents))
-    nodes_merged = _merge_nodes_by_service_name(exporters.merge_hints(nodes))
+    nodes_merged = _merge_nodes_by_service_name_node_name(exporters.merge_hints(nodes))
 
     depth = len(parents)
     nodes_to_export = nodes_merged.copy()
@@ -194,11 +194,17 @@ def _export_node(node: Node, depth: int, prefix: str, is_last_sibling: bool, out
         print("")
 
     # protocol mux
-    protocol_mux = f"port:{node.protocol_mux}" if node.protocol.blocking and depth > 0 else node.protocol_mux
+    protocol_mux = f"port-{node.protocol_mux}" if node.protocol.blocking and depth > 0 else node.protocol_mux
 
     # print node
-    address = f" ({node.provider}:{node.address})" if constants.ARGS.export_ascii_verbose else ''
-    line = f"{prefix}{branch}{info}{concise_warnings}{concise_errors}{service_name} [{protocol_mux}]{address}"
+    address = f" ({node.provider}:{node.node_name}"
+    if constants.ARGS.export_ascii_verbose:
+        address += f":{node.address}:{protocol_mux})"
+    else:
+        address += ")"
+
+    line = (f"{prefix}{branch}{info}{concise_warnings}{concise_errors}{service_name} "
+            f"[{node.node_type.name}]{address}")
     print(line, file=out)
 
 
@@ -273,9 +279,9 @@ def _remaining_nodes_for_debugging(nodes: Dict[str, Node]) -> dict:
             for node_ref, node in nodes.items() if not node.name_lookup_complete()}
 
 
-def _merge_nodes_by_service_name(nodes: Dict[str, Node]) -> Dict[str, Node]:
+def _merge_nodes_by_service_name_node_name(nodes: Dict[str, Node]) -> Dict[str, Node]:
     """
-    Return a dict of nodes, merging input nodes with the same protocol and 'service_name'
+    Return a dict of nodes, merging input nodes with the same protocol and 'service_name' and 'app_name'
     into one node.  Merges the associated protocol_mux's
 
     :param nodes: the unmerged dictionary of Node()s
@@ -302,8 +308,8 @@ def _synthesize_node_ref(node: Node, default: str) -> str:
     :param default: - default to use if node_ref not synthesizable
     :return: a 'synthetic' node_ref
     """
-    if node.service_name:
-        synthetic_node_ref = f"{node.provider}_{node.service_name}"
+    if node.service_name and node.node_name:
+        synthetic_node_ref = f"{node.provider}_{node.service_name}_{node.node_name}"
         return synthetic_node_ref
 
     return default

@@ -48,7 +48,7 @@ def test_export_tree_case_node_has_service_name(tree_named):
     # arrange
     node = tree_named[list(tree_named)[0]]
     node.set_profile_timestamp()
-    node_id = f"{node.service_name}-{node.provider}"
+    node_id = f"{node.service_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree_named).splitlines()
@@ -61,7 +61,7 @@ def test_export_tree_case_node_no_service_name(tree):
     """single node - not from hint, no service name, no children, no errs/warns"""
     # arrange
     node = tree[list(tree)[0]]
-    node_id = f"UNKNOWN-{node.provider}"
+    node_id = f"UNKNOWN-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree).splitlines()
@@ -75,7 +75,7 @@ def test_export_tree_case_node_is_database(tree_named):
     # arrange
     node = list(tree_named.values())[0]
     node.protocol = replace(node.protocol, is_database=True)
-    node_id = f"{node.service_name}-{node.provider}"
+    node_id = f"{node.service_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree_named).splitlines()
@@ -89,7 +89,7 @@ def test_export_tree_case_node_is_containerized(tree_named):
     # arrange
     node = list(tree_named.values())[0]
     node.containerized = True
-    node_id = f"{node.service_name}-{node.provider}"
+    node_id = f"{node.service_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree_named).splitlines()
@@ -103,7 +103,7 @@ def test_export_tree_case_node_warns(tree_named):
     # arrange
     node = list(tree_named.values())[0]
     node.warnings = {'FOO': True}
-    node_id = f"{node.service_name}-{node.provider}"
+    node_id = f"{node.service_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree_named).splitlines()
@@ -117,7 +117,7 @@ def test_export_tree_case_node_errors(tree_named):
     # arrange
     node = list(tree_named.values())[0]
     node.errors = {'FOO': True}
-    node_id = f"{node.service_name}-{node.provider}"
+    node_id = f"{node.service_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree_named).splitlines()
@@ -131,7 +131,7 @@ def test_export_tree_case_node_defunct(tree_named):
     # arrange
     node = list(tree_named.values())[0]
     node.warnings = {'DEFUNCT': True}
-    node_id = f"{node.service_name}-{node.provider}"
+    node_id = f"{node.service_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree_named).splitlines()
@@ -146,7 +146,7 @@ def test_export_tree_case_node_name_cleaned(tree):
     node = list(tree.values())[0]
     node.service_name = '"foo:bar#baz"'
     cleaned_name = "foo_bar_baz"
-    node_id = f"{cleaned_name}-{node.provider}"
+    node_id = f"{cleaned_name}-{node.node_name}-{node.provider}"
 
     # act
     output_lines = export_mermaid.export_tree(tree).splitlines()

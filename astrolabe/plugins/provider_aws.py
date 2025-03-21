@@ -57,8 +57,8 @@ class ProviderAWS(ProviderInterface):
     def register_cli_args(argparser: PluginArgParser):
         argparser.add_argument('--profile',  help='AWS Credentials file profile to use.  '
                                                   'This will override the AWS_PROFILE environment variable.')
-        argparser.add_argument('--service-name-tag', required=True, metavar='TAG',
-                               help='AWS tag associated with service name')
+        argparser.add_argument('--app-name-tag', required=True, metavar='TAG',
+                               help='AWS tag associated with app name')
         argparser.add_argument('--tag-filters', nargs='*',  metavar='FILTER', default=[],
                                help='Additional AWS tags to filter on or services.  Specified in format: '
                                     '"TAG_NAME=VALUE" pairs')
@@ -117,7 +117,7 @@ class ProviderAWS(ProviderInterface):
             'Name': 'instance-state-name',
             'Values': ['running']
         }, {
-            'Name': f"tag:{constants.ARGS.aws_service_name_tag}",
+            'Name': f"tag:{constants.ARGS.aws_app_name_tag}",
             'Values': [service_name]
         }]
         for tag, value in self.tag_filters.items():
@@ -133,31 +133,58 @@ class ProviderAWS(ProviderInterface):
             for instance in page['DBInstances']:
                 rds_address = instance['Endpoint']['Address']
                 name = instance['DBInstanceIdentifier']
+                instance_arn = instance['DBInstanceArn']
+                tags_response = self.rds_client.list_tags_for_resource(
+                    ResourceName=instance_arn
+                )
+                app_name = None
+                if 'TagList' in tags_response:
+                    for tag in tags_response['TagList']:
+                        if tag['Key'] == constants.ARGS.aws_app_name_tag:
+                            app_name = tag['Value']
+                            break
 
                 # Add instance information to the global dictionary
                 node = Node(
                     node_type=NodeType.RESOURCE,
                     profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     provider='aws',
-                    service_name=name,
+                    node_name=name,
+                    service_name=app_name,
                     aliases=[rds_address]
                 )
                 node.set_profile_timestamp()
                 database.save_node(node)
                 logs.logger.info("Inventoried 1 AWS RDS node: %s", node.debug_id())
 
+    # pylint:disable=too-many-nested-blocks
     def _inventory_elasticache(self):
         paginator = self.elasticache_client.get_paginator('describe_cache_clusters')
         for page in paginator.paginate(ShowCacheNodeInfo=True):
             for cluster in page['CacheClusters']:
                 cluster_name = cluster['CacheClusterId']
+                cluster_arn = cluster['ARN'] if 'ARN' in cluster else None
+                app_name = None
+                if cluster_arn:
+                    tags_response = self.elasticache_client.list_tags_for_resource(
+                        ResourceName=cluster_arn
+                    )
+
+                    # Extract the app name tag if it exists
+                    if 'TagList' in tags_response:
+                        for tag in tags_response['TagList']:
+                            if tag['Key'] == constants.ARGS.aws_app_name_tag:
+                                app_name = tag['Value']
+                                break
+
                 for node in cluster['CacheNodes']:
                     es_address = node['Endpoint']['Address']
                     node = Node(
                         node_type=NodeType.RESOURCE,
                         profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                         provider='aws',
-                        service_name=cluster_name,
+                        node_name=cluster_name,
+                        service_name=app_name,
                         aliases=[es_address]
                     )
                     node.set_profile_timestamp()
@@ -177,19 +204,20 @@ class ProviderAWS(ProviderInterface):
                 tags_response = self.elb_client.describe_tags(ResourceArns=[lb['LoadBalancerArn']])
                 if 'TagDescriptions' in tags_response and tags_response['TagDescriptions']:
                     for tag in tags_response['TagDescriptions'][0]['Tags']:
-                        if tag['Key'] == constants.ARGS.aws_service_name_tag:
+                        if tag['Key'] == constants.ARGS.aws_app_name_tag:
                             lb_app_tag = tag['Value']
                             break
                     else:
                         raise ValueError(
-                            f'Required tag {constants.ARGS.aws_service_name_tag} not configured for AWS LB: {lb_name}')
+                            f'Required tag {constants.ARGS.aws_app_name_tag} not configured for AWS LB: {lb_name}')
                 else:
                     raise ValueError(
-                        f'Required tag {constants.ARGS.aws_service_name_tag} not configured for AWS LB: {lb_name}')
+                        f'Required tag {constants.ARGS.aws_app_name_tag} not configured for AWS LB: {lb_name}')
 
                 if not lb_node:  # we only need this once
                     lb_node = Node(
                         node_type=NodeType.TRAFFIC_CONTROLLER,
+                        node_name=lb_name,
                         profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                         provider='aws',
                         protocol=PROTOCOL_TCP,
@@ -223,6 +251,7 @@ class ProviderAWS(ProviderInterface):
                                 asg_node = Node(
                                     address=asg_name,
                                     node_type=NodeType.DEPLOYMENT,
+                                    node_name=asg_name,
                                     profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                                     protocol=PROTOCOL_TCP,
                                     protocol_mux=tg_port,
@@ -239,6 +268,7 @@ class ProviderAWS(ProviderInterface):
                             ec2_node = Node(
                                 address=public_ip,
                                 node_type=NodeType.COMPUTE,
+                                node_name=instance_id,
                                 profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                                 protocol=PROTOCOL_TCP,
                                 protocol_mux=tg_port,

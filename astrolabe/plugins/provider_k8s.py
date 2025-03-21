@@ -61,7 +61,7 @@ class ProviderKubernetes(ProviderInterface):
         argparser.add_argument('--label-selectors', nargs='*', metavar='SELECTOR',
                                help='Additional labels to filter services by in k8s.  '
                                     'Specified in format "LABEL_NAME=VALUE" pairs')
-        argparser.add_argument('--service-name-label', metavar='LABEL', help='k8s label associated with service name')
+        argparser.add_argument('--app-name-label', metavar='LABEL', help='k8s label associated with app name')
 
     @staticmethod
     def is_container_platform() -> bool:
@@ -73,9 +73,9 @@ class ProviderKubernetes(ProviderInterface):
         if not pod:
             return
 
-        service_name_label = 'app'
-        if service_name_label in pod.metadata.labels:
-            return pod.metadata.labels[service_name_label]
+        app_name_label = constants.ARGS.k8s_app_name_label
+        if app_name_label in pod.metadata.labels:
+            return pod.metadata.labels[app_name_label]
 
         return None
 
@@ -128,7 +128,7 @@ class ProviderKubernetes(ProviderInterface):
         # profile k8s service
         if database.node_is_k8s_service(node.address):
             logs.logger.debug("Profiling address %s as k8s service", node.address)
-            return await self._profile_k8s_service(node.service_name)
+            return await self._profile_k8s_service(node.node_name)
 
         # profile pod
         logs.logger.debug("Profiling address %s as k8s pod", node.address)
@@ -237,22 +237,29 @@ class ProviderKubernetes(ProviderInterface):
                 lb_address = ingress[0].hostname or ingress[0].ip
                 k8s_service_address = svc.spec.cluster_ip
                 k8s_service_name = svc.metadata.name
+                if svc.spec.selector and constants.ARGS.k8s_app_name_label in svc.spec.selector:
+                    k8s_service_app_name = svc.spec.selector[constants.ARGS.k8s_app_name_label]
+                else:
+                    raise ValueError(f"k8s service {k8s_service_address} does not have configured k8s service name "
+                                     f"selector: {constants.ARGS.k8s_app_name_label}")
                 k8s_service_node = Node(
                     address=k8s_service_address,
+                    node_name=k8s_service_name,
                     node_type=NodeType.DEPLOYMENT,
                     profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     protocol=PROTOCOL_TCP,
                     protocol_mux=ports.node_port,
                     provider='k8s',
-                    service_name=k8s_service_name
+                    service_name=k8s_service_app_name
                 )
                 lb_node = Node(
                     node_type=NodeType.TRAFFIC_CONTROLLER,
+                    node_name=k8s_service_name,
                     profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                     provider='k8s',
                     protocol=PROTOCOL_TCP,
                     protocol_mux=ports.port,
-                    service_name=k8s_service_name,
+                    service_name=k8s_service_app_name,
                     aliases=[lb_address]
                 )
                 database.save_node(k8s_service_node)
@@ -268,7 +275,7 @@ def _parse_label_selector(service_name: str) -> str:
     """
     label_name_pos = 0
     label_value_pos = 1
-    label_selector_pairs = {constants.ARGS.k8s_service_name_label: service_name}
+    label_selector_pairs = {constants.ARGS.k8s_app_name_label: service_name}
     for label, value in [(selector.split('=')[label_name_pos], selector.split('=')[label_value_pos])
                          for selector in constants.ARGS.k8s_label_selectors]:
         label_selector_pairs[label] = value

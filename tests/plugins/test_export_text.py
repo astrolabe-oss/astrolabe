@@ -11,5 +11,7 @@ def test_export_tree(tree_stubbed_with_child, capsys, patch_database):  # pylint
     child = list(_fake_database.get_connections(parent).values())[0]
 
     # assert
-    assert f"{parent.service_name} --[{child.protocol.ref}]--> {child.service_name} ({parent.protocol_mux})" \
+    assert (f"{parent.service_name} ({parent.node_name})"
+            f" --[{child.protocol.ref}:{child.protocol_mux}]--> "
+            f"{child.service_name} ({child.node_name})") \
            in captured.out

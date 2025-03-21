@@ -238,6 +238,7 @@ class PlatDBNetworkNode(PlatDBNode):
     __abstract_node__ = True
     """Base class for nodes with network properties."""
     name = StringProperty()
+    app_name = StringProperty()
     address = StringProperty(required=True)
     protocol = StringProperty()
     protocol_multiplexor = StringProperty()
