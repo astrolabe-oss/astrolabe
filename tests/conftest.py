@@ -135,7 +135,8 @@ def tree_stubbed_with_child(tree_stubbed, node_fixture) -> Dict[str, Node]:
 @pytest.fixture
 def tree_named(tree):
     """single node tree fixture - where the node has the service_name field filled out"""
-    list(tree.values())[0].service_name = 'dummy'
+    list(tree.values())[0].node_name = 'dummy_node'
+    list(tree.values())[0].service_name = 'dummy_service'
 
     return tree
 

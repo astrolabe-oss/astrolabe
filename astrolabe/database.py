@@ -45,7 +45,8 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         containerized=False,  # I don't know what else to put here
         from_hint=False,  # No hints in the sandbox for now
         address=platdb_node.address,
-        service_name=platdb_node.name,
+        service_name=platdb_node.app_name,
+        node_name=platdb_node.name,
         warnings=platdb_node.profile_warnings,
         errors=platdb_node.profile_errors,
         _profile_timestamp=platdb_node.profile_timestamp,
@@ -69,7 +70,8 @@ def save_node(node: Node) -> Node:
         protocol = node.protocol.ref
 
     props = {
-        'name': node.service_name,
+        'name': node.node_name,
+        'app_name': node.service_name,
         'address': node.address,
         'profile_strategy_name': node.profile_strategy_name,
         'protocol': protocol,

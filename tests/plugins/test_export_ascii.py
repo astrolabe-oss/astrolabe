@@ -52,7 +52,7 @@ async def test_export_tree_case_seed(tree_stubbed, capsys):
     captured = capsys.readouterr()
 
     # assert
-    assert f"\n{seed.service_name} [{seed.protocol_mux}]\n" == captured.out
+    assert f"\n{seed.service_name} [{seed.node_type.name}] ({seed.provider}:{seed.node_name})\n" == captured.out
 
 
 @pytest.mark.asyncio
@@ -68,8 +68,8 @@ async def test_export_tree_case_child(tree_stubbed_with_child, capsys):
 
     # assert
     expected = ("\n"
-                f"{seed.service_name} [{seed.protocol_mux}]\n"
-                f" └--{child.protocol.ref}--> {child.service_name} [port:{child.protocol_mux}]\n")
+                f"{seed.service_name} [{seed.node_type.name}] ({seed.provider}:{seed.node_name})\n"
+                f" └--{child.protocol.ref}--> {child.service_name} [{child.node_type.name}] ({child.provider}:{child.node_name})\n")  # noqa: E501
     assert expected == captured.out
 
 
@@ -126,8 +126,8 @@ async def test_export_tree_case_child_errors(error, tree_stubbed_with_child, cap
     captured = capsys.readouterr()
 
     # assert
-    assert f" └--{child.protocol.ref}--? \x1b[31m{{ERR:{error}}} \x1b[0m{child.address} [port:{child.protocol_mux}]" \
-           in captured.out
+    expected = f" └--{child.protocol.ref}--? \x1b[31m{{ERR:{error}}} \x1b[0m{child.address} [{child.node_type.name}] ({child.provider}:{child.node_name})"  # noqa: E501
+    assert expected in captured.out
 
 
 @pytest.mark.asyncio
@@ -224,14 +224,13 @@ async def test_export_tree_case_merged_nodes(tree_stubbed_with_child, capsys):
     redundant_child = replace(child, address='asdf-zxc', protocol_mux='some_other_mux')
     _fake_database.connect_nodes(seed, redundant_child)
     # - we have to capture this now because export_tree will mutate these objects!
-    expected_merged_mux = f"{child.protocol_mux},{redundant_child.protocol_mux}"
 
     # act
     await _helper_export_tree_with_timeout(tree_stubbed_with_child)
     captured = capsys.readouterr()
 
     # assert
-    assert f"--> {child.service_name} [port:{expected_merged_mux}]" in captured.out
+    assert f"--> {child.service_name} [{child.node_type.name}] ({child.provider}:{child.node_name})" in captured.out
 
 
 ## TODO: Commenting test, for now.  This is a fairly complex display feature ... when ascii is no longer

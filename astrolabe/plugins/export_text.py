@@ -38,8 +38,9 @@ def build_flat_services(tree_node: node.Node) -> None:
         return
 
     for child in children.values():
-        relationship = f"{tree_node.service_name or 'UNKNOWN'} --[{child.protocol.ref}]--> " \
-                       f"{child.service_name or child.address} ({child.protocol_mux})"
+        relationship = (f"{tree_node.service_name or 'UNKNOWN'} ({tree_node.node_name}) "
+                        f"--[{child.protocol.ref}:{child.protocol_mux}]--> "
+                        f"{child.service_name or child.address} ({child.node_name})")
         if relationship not in flat_relationships:
             flat_relationships[relationship] = (tree_node, child)
         build_flat_services(child)
