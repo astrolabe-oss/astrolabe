@@ -54,6 +54,9 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         node_type=class_to_node[platdb_node.__class__]
     )
 
+    if hasattr(platdb_node, 'ipaddrs'):
+        node.ipaddrs = platdb_node.ipaddrs
+
     if hasattr(platdb_node, 'dns_names'):
         node.aliases = platdb_node.dns_names
 
@@ -126,6 +129,7 @@ def _merge_resource(node: Node, props: dict) -> platdb.PlatDBNode:
 
 def _merge_traffic_controller(node: Node, props: dict) -> platdb.PlatDBNode:
     props['dns_names'] = node.aliases
+    props['ipaddrs'] = node.ipaddrs
     tctl = platdb.TrafficController.create_or_update(props)[0]
 
     return tctl
@@ -329,7 +333,7 @@ def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:
 def get_node_by_address(address: str) -> Optional[Node]:
     query = """
     MATCH (n)
-    WHERE n.address = $address
+    WHERE n.address = $address OR $address IN n.ipaddrs
     RETURN n
     """
     results, _ = platdb.db.cypher_query(query, {"address": address})

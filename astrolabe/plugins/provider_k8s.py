@@ -112,9 +112,8 @@ class ProviderKubernetes(ProviderInterface):
             logs.logger.info("Found ipaddrs: [%s] for hostname %s on host %s", ",".join(ip_addrs), hostname, address)
             for ip_addr in ip_addrs:
                 if ip_addr and database.get_node_by_address(ip_addr) is None:
-                    # TODO: we are glossing over the fact that there can multiple addresses per
-                    #  node for DNS records here!  Solve that problem later!
                     node.address = ip_addr
+                    node.ipaddrs = (node.ipaddrs or []) + [ip_addr]
                     database.save_node(node)
 
     async def profile(self, node: Node, pfss: List[ProfileStrategy], _: Optional[type]) -> List[NodeTransport]:
