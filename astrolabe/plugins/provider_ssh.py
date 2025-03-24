@@ -267,4 +267,5 @@ async def _sidecar_lookup_hostname(address: str, hostname: str, node: Node, conn
         if address and database.get_node_by_address(address) is None:
             logs.logger.debug(f"Discovered IP %s for {hostname}: from address %s", addr_bytes, address)
             node.address = address
+            node.ipaddrs = (node.ipaddrs or []) + [address]
             database.save_node(node)

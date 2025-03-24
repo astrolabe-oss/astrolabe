@@ -68,6 +68,7 @@ class Node:
     containerized: bool = False
     from_hint: bool = False
     address: str = None
+    ipaddrs: Optional[List[str]] = None
     node_name: str = None
     service_name: str = None
     aliases: List[str] = field(default_factory=list)  # such as DNS names

@@ -183,10 +183,56 @@ class PlatDBNode(StructuredNode):
         return data
 
 
-class PlatDBDNSNode(PlatDBNode):
+class Application(PlatDBNode):
+    name = StringProperty(unique_index=True)
+
+    # Application-Deployment relationships
+    deployments = RelationshipTo('Deployment', 'IMPLEMENTED_BY', cardinality=ZeroOrMore)
+
+
+class PlatDBNetworkNode(PlatDBNode):
+    __abstract_node__ = True
+    """Base class for nodes with network properties."""
+    name = StringProperty()
+    app_name = StringProperty()
+    address = StringProperty(required=True)
+    protocol = StringProperty()
+    protocol_multiplexor = StringProperty()
+
+
+class Deployment(PlatDBNetworkNode):
+    name = StringProperty(unique_index=True)
+    deployment_type = StringProperty(choices={
+        "aws_asg": "AWS Auto Scaling Group",
+        "k8s_deployment": "K8s Deployment"})
+
+    # Relationships
+    application = RelationshipTo('Application', 'IMPLEMENTS', cardinality=ZeroOrOne)
+    computes = RelationshipTo('Compute', 'HAS_MEMBER', cardinality=ZeroOrMore)
+    traffic_controller = RelationshipTo('TrafficController', 'FORWARDED_FROM',
+                                        cardinality=ZeroOrOne)
+    downstream_traffic_ctrls = RelationshipTo('TrafficController', 'CALLS', cardinality=ZeroOrMore)
+    downstream_deployments = RelationshipTo('Deployment', 'CALLS', cardinality=ZeroOrMore)
+    upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
+    resources = RelationshipTo('Resource', 'CALLS', cardinality=ZeroOrMore)
+
+
+class Compute(PlatDBNetworkNode):
+    platform = StringProperty()
+
+    # Relationships
+    deployment = RelationshipTo('Deployment', 'MEMBER_OF', cardinality=ZeroOrOne)
+
+    # I Think we need to get rid of or refactor this, and corresponding database.py usages
+    downstream_computes = RelationshipTo('Compute', 'CALLS', cardinality=ZeroOrMore)
+    upstream_computes = RelationshipFrom('Compute', 'CALLED_BY', cardinality=ZeroOrMore)
+
+
+class PlatDBDNSNode(PlatDBNetworkNode):
     __abstract_node__ = True
     address = StringProperty(unique_index=True, null=True, required=False)
     dns_names = ArrayProperty(StringProperty(), unique_index=True, null=True)
+    ipaddrs = ArrayProperty(StringProperty(), null=True)
 
     # pylint:disable=arguments-differ
     @classmethod
@@ -234,57 +280,12 @@ class PlatDBDNSNode(PlatDBNode):
         return [existing_resource]
 
 
-class PlatDBNetworkNode(PlatDBNode):
-    __abstract_node__ = True
-    """Base class for nodes with network properties."""
-    name = StringProperty()
-    app_name = StringProperty()
-    address = StringProperty(required=True)
-    protocol = StringProperty()
-    protocol_multiplexor = StringProperty()
-
-
-class Application(PlatDBNode):
-    name = StringProperty(unique_index=True)
-
-    # Application-Deployment relationships
-    deployments = RelationshipTo('Deployment', 'IMPLEMENTED_BY', cardinality=ZeroOrMore)
-
-
-class Deployment(PlatDBNetworkNode):
-    name = StringProperty(unique_index=True)
-    deployment_type = StringProperty(choices={
-        "aws_asg": "AWS Auto Scaling Group",
-        "k8s_deployment": "K8s Deployment"})
-
-    # Relationships
-    application = RelationshipTo('Application', 'IMPLEMENTS', cardinality=ZeroOrOne)
-    computes = RelationshipTo('Compute', 'HAS_MEMBER', cardinality=ZeroOrMore)
-    traffic_controller = RelationshipTo('TrafficController', 'FORWARDED_FROM',
-                                        cardinality=ZeroOrOne)
-    downstream_traffic_ctrls = RelationshipTo('TrafficController', 'CALLS', cardinality=ZeroOrMore)
-    downstream_deployments = RelationshipTo('Deployment', 'CALLS', cardinality=ZeroOrMore)
-    upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
-    resources = RelationshipTo('Resource', 'CALLS', cardinality=ZeroOrMore)
-
-
-class Compute(PlatDBNetworkNode):
-    platform = StringProperty()
-
-    # Relationships
-    deployment = RelationshipTo('Deployment', 'MEMBER_OF', cardinality=ZeroOrOne)
-
-    # I Think we need to get rid of or refactor this, and corresponding database.py usages
-    downstream_computes = RelationshipTo('Compute', 'CALLS', cardinality=ZeroOrMore)
-    upstream_computes = RelationshipFrom('Compute', 'CALLED_BY', cardinality=ZeroOrMore)
-
-
-class TrafficController(PlatDBDNSNode, PlatDBNetworkNode):
+class TrafficController(PlatDBDNSNode):
     # Relationships
     downstream_deployments = RelationshipTo('Deployment', 'FORWARDS_TO', cardinality=ZeroOrOne)
     upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
 
 
-class Resource(PlatDBDNSNode, PlatDBNetworkNode):
+class Resource(PlatDBDNSNode):
     # Relationships
     upstreams = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
