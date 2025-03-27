@@ -79,7 +79,7 @@ async def export_tree(nodes: Dict[str, Node], parents: List[Ancestor], out=sys.s
                 nodes_to_export.pop(node_ref)
                 continue
 
-            if node.profile_complete(constants.CURRENT_RUN_TIMESTAMP):
+            if constants.ARGS.seeds_only or node.profile_complete(constants.CURRENT_RUN_TIMESTAMP):
                 # this sleep allows human eyes to comprehend output
                 if print_slowly_for_humans:
                     await asyncio.sleep(_get_sleep_for_humans_seconds())

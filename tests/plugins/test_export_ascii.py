@@ -198,6 +198,23 @@ async def test_export_tree_case_respect_cli_max_depth(cli_args_mock, tree_stubbe
 
 
 @pytest.mark.asyncio
+async def test_export_tree_case_respect_cli_seeds_only(cli_args_mock, tree_stubbed_with_child, capsys, mocker):
+    """seed and child are both printed even if seed is not profiled due to --seeds-only flag"""
+    # arrange
+    cli_args_mock.seeds_only = True
+    seed = tree_stubbed_with_child[list(tree_stubbed_with_child)[0]]
+    child = list(_fake_database.get_connections(seed).values())[0]
+    mocker.patch.object(child, 'profile_complete', return_value=False)
+
+    # act
+    await _helper_export_tree_with_timeout(tree_stubbed_with_child)
+    captured = capsys.readouterr()
+
+    # assert
+    assert child.service_name in captured.out
+
+
+@pytest.mark.asyncio
 async def test_export_tree_case_last_child(tree_stubbed_with_child, node_fixture, capsys):
     """A single node with multiple children, the last child printed is slightly different"""
     # arrange

@@ -102,9 +102,8 @@ async def _get_connection(host: str, retry_num=0) -> asyncssh.SSHClientConnectio
     try:
         if bastion:
             logs.logger.debug("Using bastion: %s", str(bastion))
-            conn = await bastion.connect_ssh(host, **SSH_CONNECT_ARGS)
-        conn = await asyncssh.connect(host, **SSH_CONNECT_ARGS)
-        return conn
+            return await bastion.connect_ssh(host, **SSH_CONNECT_ARGS)
+        return await asyncssh.connect(host, **SSH_CONNECT_ARGS)
     except ChannelOpenError as exc:
         raise TimeoutException(f"asyncssh.ChannelOpenError encountered opening SSH connection for {host}") from exc
     except Exception as exc:
