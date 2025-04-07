@@ -36,7 +36,6 @@ ssh-name-command = echo \$SANDBOX_APP_NAME
 aws-app-name-tag = App
 aws-tag-filters = [Environment=sandbox1]
 ; k8s provider
-k8s-namespace = default
 k8s-label-selectors = [environment=dev]
 k8s-app-name-label = app
 ; export

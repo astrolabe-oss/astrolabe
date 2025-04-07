@@ -15,11 +15,12 @@ SPDX-License-Identifier: Apache-2.0
 """
 import asyncio
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from kubernetes_asyncio import client, config
 from kubernetes_asyncio.stream import WsApiClient
 from kubernetes_asyncio.client.rest import ApiException
+from kubernetes_asyncio.client.models import V1PodList, V1ServiceList, V1Pod, V1Service
 from termcolor import colored
 
 from astrolabe import database, constants, logs
@@ -57,7 +58,6 @@ class ProviderKubernetes(ProviderInterface):
     def register_cli_args(argparser: PluginArgParser):
         argparser.add_argument('--skip-containers', nargs='*', default=[], metavar='CONTAINER',
                                help='Ignore containers (uses substring matching)')
-        argparser.add_argument('--namespace', required=True, help='k8s Namespace in which to discover services')
         argparser.add_argument('--label-selectors', nargs='*', metavar='SELECTOR',
                                help='Additional labels to filter services by in k8s.  '
                                     'Specified in format "LABEL_NAME=VALUE" pairs')
@@ -100,12 +100,13 @@ class ProviderKubernetes(ProviderInterface):
         if not pod:
             return
 
+        pod_namespace = pod.metadata.namespace
         containers = pod.spec.containers
         containers = [c for c in containers if True not in
                       [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
         for container in containers:
             # IDE inspection doesn't think that this coroutine is async/awaitable, but it is
-            ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
+            ret = await self.ws_api.connect_get_namespaced_pod_exec(address, pod_namespace,
                                                                     container=container.name, command=exec_command,
                                                                     stderr=True, stdin=False, stdout=True, tty=False)
             ip_addrs = ret.strip().split('\n') if ret else None
@@ -136,13 +137,21 @@ class ProviderKubernetes(ProviderInterface):
     async def _profile_k8s_service(self, svc_name: str) -> List[NodeTransport]:
         # k8s_service_pfs = profile_strategy.
         try:
-            service = await self.api.read_namespaced_service(svc_name, namespace="default")
+            # Filter by service name directly in the API call
+            services = await self.api.list_service_for_all_namespaces(field_selector=f"metadata.name={svc_name}")
+            services = _filter_excluded_namespaces(services)
+            if 0 == len(services):
+                return []
+
+            service = services[0]
             selector = service.spec.selector
+            namespace = service.metadata.namespace
             if not selector:
                 return []
 
             label_selector = ",".join([f"{key}={value}" for key, value in selector.items()])
-            pods = await self.api.list_namespaced_pod(namespace="default", label_selector=label_selector)
+            pods = await self.api.list_namespaced_pod(namespace=namespace,
+                                                      label_selector=label_selector)
 
             node_transports = []
             for pod in pods.items:
@@ -172,12 +181,13 @@ class ProviderKubernetes(ProviderInterface):
             if not pod:
                 return []
 
+            pod_namespace = pod.metadata.namespace
             containers = pod.spec.containers
             containers = [c for c in containers if True not in
                           [skip in c.name for skip in constants.ARGS.k8s_skip_containers]]
 
             for container in containers:
-                ret = await self.ws_api.connect_get_namespaced_pod_exec(address, constants.ARGS.k8s_namespace,
+                ret = await self.ws_api.connect_get_namespaced_pod_exec(address, pod_namespace,
                                                                         container=container.name, command=exec_command,
                                                                         stderr=True, stdin=False, stdout=True,
                                                                         tty=False)
@@ -186,10 +196,13 @@ class ProviderKubernetes(ProviderInterface):
         return node_transports
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
-        ret = await self.api.list_namespaced_pod(constants.ARGS.k8s_namespace, limit=1,
-                                                 label_selector=_parse_label_selector(hint.service_name))
+        label_selector = _parse_label_selector(hint.service_name)
+        all_pods = await self.api.list_pod_for_all_namespaces(limit=1, label_selector=label_selector)
+        filtered_pods = _filter_excluded_namespaces(all_pods)
+
         try:
-            address = ret.items[0].metadata.name
+            pod = filtered_pods[0]
+            address = pod.metadata.name
         except IndexError:
             print(colored(f"Unable to take a hint, no instance in k8s cluster: "
                           f"{config.list_kube_config_contexts()[1]} for hint:", 'red'))
@@ -216,8 +229,14 @@ class ProviderKubernetes(ProviderInterface):
             return pod_cache[pod_name]
 
         try:
-            pod = await self.api.read_namespaced_pod(pod_name, constants.ARGS.k8s_namespace)
-            pod_cache[pod_name] = pod
+            pods = await self.api.list_pod_for_all_namespaces(field_selector=f"metadata.name={pod_name}")
+            filtered_pods = _filter_excluded_namespaces(pods)
+
+            if not filtered_pods:
+                logs.logger.debug("Cannot find pod %s in any non-excluded namespace", pod_name)
+                return None
+
+            pod = filtered_pods[0]
         except ApiException as exc:
             logs.logger.debug("Cannot find pod %s w/ ApiException(%s:%s)", pod_name, exc.status, exc.reason)
             return None
@@ -279,3 +298,56 @@ def _parse_label_selector(service_name: str) -> str:
                          for selector in constants.ARGS.k8s_label_selectors]:
         label_selector_pairs[label] = value
     return ','.join(f"{label}={value}" for label, value in label_selector_pairs.items())
+
+
+def _filter_excluded_namespaces(k8s_resources: Union[V1PodList, V1ServiceList]) -> List[Union[V1Pod, V1Service]]:
+    # Default system namespaces to exclude from discovery
+    exclude_namespaces = [
+        # Core Kubernetes system namespaces
+        "kube-system",  # Contains core Kubernetes components like kube-proxy, CoreDNS, etc.
+        "kube-public",  # Contains publicly accessible data
+        "kube-node-lease",  # Contains node heartbeat information
+
+        # Service mesh namespaces
+        "istio-system",  # Istio service mesh components
+        "linkerd",  # Linkerd service mesh components
+        "consul",  # Consul service mesh and service discovery
+
+        # Monitoring and observability namespaces
+        "monitoring",  # General monitoring namespace (often used by Prometheus stack)
+        "prometheus",  # Prometheus monitoring specific namespace
+        "grafana",  # Grafana dashboards
+        "metrics-server",  # Kubernetes metrics collection
+        "elastic-system",  # Elasticsearch, Logstash, Kibana (ELK stack)
+        "logging",  # General logging infrastructure
+        "loki",  # Loki logging system
+        "datadog",  # Datadog monitoring agent and components
+        "newrelic",  # New Relic monitoring components
+
+        # Certificate and security namespaces
+        "cert-manager",  # Certificate management for Kubernetes
+        "vault",  # HashiCorp Vault for secrets management
+        "security",  # General security tools
+
+        # Ingress controllers
+        "ingress-nginx",  # NGINX ingress controller
+        "nginx-ingress",  # Alternative namespace for NGINX ingress
+        "traefik",  # Traefik ingress controller
+        "kong",  # Kong API gateway
+
+        # Serverless/Function-as-a-Service
+        "knative-serving",  # Knative serving components
+        "openfaas",  # OpenFaaS serverless framework
+        "kubeless",  # Kubeless serverless framework
+
+        # Container registry
+        "harbor",  # Harbor container registry
+
+        # Operators and controllers
+        "operators",  # General operators namespace
+        "tekton-pipelines",  # Tekton CI/CD pipelines
+        "argo",  # Argo Workflows and CD
+        "argocd",  # ArgoCD GitOps
+        "flux-system"  # Flux GitOps
+    ]
+    return [s for s in k8s_resources.items if s.metadata.namespace not in exclude_namespaces]
