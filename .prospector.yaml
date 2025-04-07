@@ -18,3 +18,7 @@ pylint:
     - no-else-return                # prefer multiple return statements
     - redefined-outer-name          # pytest fixture
   source-roots: .
+
+pyflakes:
+  disable:
+    - F999  # Unused global variable
