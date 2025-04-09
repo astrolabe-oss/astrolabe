@@ -62,6 +62,8 @@ class ProviderKubernetes(ProviderInterface):
                                help='Additional labels to filter services by in k8s.  '
                                     'Specified in format "LABEL_NAME=VALUE" pairs')
         argparser.add_argument('--app-name-label', metavar='LABEL', help='k8s label associated with app name')
+        argparser.add_argument('--exclude-namespaces', nargs='*', default=[], metavar='EXCLUDE_NAMESPACES',
+                               help='Additional namespaces to exclude from discovery')
 
     @staticmethod
     def is_container_platform() -> bool:
@@ -143,6 +145,7 @@ class ProviderKubernetes(ProviderInterface):
             if 0 == len(services):
                 return []
 
+            # We are assuming that there is only one service in any namespace and just taking the first one here
             service = services[0]
             selector = service.spec.selector
             namespace = service.metadata.namespace
@@ -302,7 +305,7 @@ def _parse_label_selector(service_name: str) -> str:
 
 def _filter_excluded_namespaces(k8s_resources: Union[V1PodList, V1ServiceList]) -> List[Union[V1Pod, V1Service]]:
     # Default system namespaces to exclude from discovery
-    exclude_namespaces = [
+    default_exclude_namespaces = [
         # Core Kubernetes system namespaces
         "kube-system",  # Contains core Kubernetes components like kube-proxy, CoreDNS, etc.
         "kube-public",  # Contains publicly accessible data
@@ -350,4 +353,8 @@ def _filter_excluded_namespaces(k8s_resources: Union[V1PodList, V1ServiceList]) 
         "argocd",  # ArgoCD GitOps
         "flux-system"  # Flux GitOps
     ]
-    return [s for s in k8s_resources.items if s.metadata.namespace not in exclude_namespaces]
+
+    exclude_namespaces = default_exclude_namespaces + constants.ARGS.k8s_exclude_namespaces
+    nonexcluded_resources = [s for s in k8s_resources.items if s.metadata.namespace not in exclude_namespaces]
+
+    return nonexcluded_resources

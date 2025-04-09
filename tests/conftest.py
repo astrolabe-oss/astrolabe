@@ -56,7 +56,7 @@ def protocol_mock(mocker, dummy_protocol_ref) -> MagicMock:
 
 @pytest.fixture
 def profile_strategy_fixture() -> ProfileStrategy:
-    return ProfileStrategy('', '', None, '', {}, {}, {}, {})
+    return ProfileStrategy('', '', None, '', {'shell_command': 'foo'}, {}, {}, {})
 
 
 @pytest.fixture

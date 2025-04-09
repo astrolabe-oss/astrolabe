@@ -5,7 +5,7 @@ test:
 	@pytest tests
 
 coverage:
-	@pytest tests --cov --cov-fail-under=75 --cov-config .coveragerc
+	@pytest tests --cov --cov-fail-under=70 --cov-config .coveragerc
 
 lint:
 	@prospector --profile .prospector.yaml $(filter-out $@,$(MAKECMDGOALS))

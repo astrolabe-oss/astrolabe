@@ -361,7 +361,7 @@ def get_node_by_address(address: str) -> Optional[Node]:
     return _neomodel_to_node(obj)
 
 
-def get_nodes_pending_dnslookup() -> [str, Node]:  # {dns_name: Node()}
+def get_nodes_pending_dnslookup() -> Dict[str, Node]:  # {dns_name: Node()}
     # Give all the nodes that have ANY dns name AKA alias and don't have address field
     query = """
     MATCH (n)
