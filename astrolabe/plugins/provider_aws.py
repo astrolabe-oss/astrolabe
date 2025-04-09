@@ -15,7 +15,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import sys
-from typing import List
+from typing import List, Dict
 
 import boto3
 from botocore.exceptions import ClientError
@@ -202,18 +202,7 @@ class ProviderAWS(ProviderInterface):
                 listeners = self.elb_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])['Listeners']
                 lb_port = listeners[0]['Port'] if listeners else None
                 tags_response = self.elb_client.describe_tags(ResourceArns=[lb['LoadBalancerArn']])
-                if 'TagDescriptions' in tags_response and tags_response['TagDescriptions']:
-                    for tag in tags_response['TagDescriptions'][0]['Tags']:
-                        if tag['Key'] == constants.ARGS.aws_app_name_tag:
-                            lb_app_tag = tag['Value']
-                            break
-                    else:
-                        raise ValueError(
-                            f'Required tag {constants.ARGS.aws_app_name_tag} not configured for AWS LB: {lb_name}')
-                else:
-                    raise ValueError(
-                        f'Required tag {constants.ARGS.aws_app_name_tag} not configured for AWS LB: {lb_name}')
-
+                lb_app_tag = _parse_app_name_tag(lb_name, tags_response)
                 if not lb_node:  # we only need this once
                     lb_node = Node(
                         node_type=NodeType.TRAFFIC_CONTROLLER,
@@ -222,9 +211,10 @@ class ProviderAWS(ProviderInterface):
                         provider='aws',
                         protocol=PROTOCOL_TCP,
                         protocol_mux=lb_port,
-                        service_name=lb_app_tag,
                         aliases=[lb_address]
                     )
+                    if lb_app_tag:
+                        lb_node.service_name = lb_app_tag
                     database.save_node(lb_node)
                 # find the ASG(s) the load balancer sends requests to.  There is no
                 #  direct link in AWS between load balancer and ASG, so we have to find
@@ -278,6 +268,22 @@ class ProviderAWS(ProviderInterface):
                             database.connect_nodes(asg_node, ec2_node)
                             logs.logger.info("Inventoried 1 AWS EC2 node: %s", ec2_node.debug_id())
                 logs.logger.info("Inventoried 1 AWS ALB node: %s", lb_node.debug_id())
+
+
+def _parse_app_name_tag(aws_resource_name: str, tags_response: Dict[str, str]):
+    app_name = None
+    if 'TagDescriptions' in tags_response and tags_response['TagDescriptions']:
+        for tag in tags_response['TagDescriptions'][0]['Tags']:
+            if tag['Key'] == constants.ARGS.aws_app_name_tag:
+                app_name = tag['Value']
+                break
+        else:
+            logs.logger.warning('Required tag %s not configured for AWS Resource: %s',
+                                constants.ARGS.aws_app_name_tag, aws_resource_name)
+    else:
+        logs.logger.warning('Required tag %s not configured for AWS Resource: %s',
+                            constants.ARGS.aws_app_name_tag, aws_resource_name)
+    return app_name
 
 
 def _die(err):
