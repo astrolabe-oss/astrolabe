@@ -62,6 +62,8 @@ class ProviderAWS(ProviderInterface):
         argparser.add_argument('--tag-filters', nargs='*',  metavar='FILTER', default=[],
                                help='Additional AWS tags to filter on or services.  Specified in format: '
                                     '"TAG_NAME=VALUE" pairs')
+        argparser.add_argument('--use-private-ips', action='store_true', default=False,
+                               help='Prefer private IP addresses for compute nodes when available')
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
         instance_address = await self._resolve_instance(hint.service_name)
@@ -253,10 +255,17 @@ class ProviderAWS(ProviderInterface):
                                 database.connect_nodes(lb_node, asg_node)
                                 logs.logger.info("Inventoried 1 AWS ASG node: %s", asg_node.debug_id())
                             instance_info = self.ec2_client.describe_instances(InstanceIds=[instance_id])
-                            public_ip = instance_info['Reservations'][0]['Instances'][0].get('PublicIpAddress')
+                            instance = instance_info['Reservations'][0]['Instances'][0]
+                            public_ip = instance.get('PublicIpAddress')
+                            private_ip = instance.get('PrivateIpAddress')
+
+                            # Use private IP if available, otherwise fall back to public IP
+                            node_address = private_ip if constants.ARGS.aws_use_private_ips and private_ip \
+                                else public_ip
+
                             # Create the EC2 Instance Node
                             ec2_node = Node(
-                                address=public_ip,
+                                address=node_address,
                                 node_type=NodeType.COMPUTE,
                                 node_name=instance_id,
                                 profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
