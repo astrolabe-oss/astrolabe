@@ -1,7 +1,5 @@
 # pylint: disable=unused-argument,too-many-arguments,too-many-positional-arguments
-"""
-Unit tests for the ProviderKubernetes class's excluded namespaces functionality.
-"""
+"""Unit tests for the ProviderKubernetes"""
 import pytest
 
 from kubernetes_asyncio.client.models import V1PodList, V1ServiceList, V1Pod, V1Service
