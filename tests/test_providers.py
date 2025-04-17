@@ -56,19 +56,21 @@ def test_init_case_builtin_providers_disableable(cli_args_mock, builtin_provider
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('seeds_only,inventory_called', [
-    (True, False),  # When seeds_only=True: inventory should be skipped
-    (False, True)  # When seeds_only=False: inventory should be called
+@pytest.mark.parametrize('seeds_only_flag, skip_inventory_flag', [
+    (True, False),
+    (False, False),
+    (True, True),
+    (False, True)
 ])
-async def test_perform_inventory_case_respect_cli_seeds_only(
-        cli_args_mock, mocker, seeds_only, inventory_called
-):
+async def test_perform_inventory_case_respect_cli_seeds_only(cli_args_mock, mocker,
+                                                             seeds_only_flag, skip_inventory_flag):
     """
     When --seeds-only is set to True, perform_inventory should skip calling provider.inventory().
     When --seeds-only is False, perform_inventory should call provider.inventory() for each enabled provider.
     """
     # arrange
-    cli_args_mock.seeds_only = seeds_only
+    cli_args_mock.seeds_only = seeds_only_flag
+    cli_args_mock.skip_inventory = skip_inventory_flag
     cli_args_mock.disable_providers = []
 
     # Create a mock provider
@@ -86,12 +88,12 @@ async def test_perform_inventory_case_respect_cli_seeds_only(
     await providers.perform_inventory()
 
     # assert
-    if inventory_called:
-        mock_get_registered.assert_called_once()
-        mock_provider.inventory.assert_called_once()
-    else:
+    if seeds_only_flag or skip_inventory_flag:
         mock_get_registered.assert_not_called()
         mock_provider.inventory.assert_not_called()
+    else:
+        mock_get_registered.assert_called_once()
+        mock_provider.inventory.assert_called_once()
 
 
 @pytest.mark.parametrize('profile_strategy_response', ['', 'foo bar'])

@@ -10,7 +10,6 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import asyncio
-import sys
 import traceback
 
 from typing import Dict, List, Optional
@@ -32,11 +31,7 @@ child_cache: Dict[str, Dict[str, Node]] = {}  # {'provider_ref:service_name': {n
 #  and also "max-depth" of this discovery run.  We don't used "visited" pattern for cycle detection because
 #  it is allowed for a node to be seen/visited multiple times during a run if it appears in different branches
 #  of the discovery tree - this makes sure it is only a cycle if seen in the same branch.
-#
-# Additionally - we use the id(node) (python memory address) of the node for the list hash in order to avoid
-#  cache clobbering in the event that a node with the same node.id() (provider:address) appears in discovery
-#  and for some reason isn't detected and merged into the existing node
-discovery_ancestors: Dict[int, List[str]] = {}  # {node_memory_address: List[ancestors]}
+discovery_ancestors: Dict[str, List[str]] = {}  # {node.address: List[ancestor_addresses]}
 
 
 class DiscoveryException(Exception):
@@ -46,6 +41,28 @@ class DiscoveryException(Exception):
         self.ancestors: Optional[List[str]] = None
 
 
+def _get_nodes_unprofiled(seeds: Dict[str, Node]) -> Dict[str, Node]:
+    upn = database.get_nodes_unprofiled(constants.CURRENT_RUN_TIMESTAMP)
+    if not constants.ARGS.seeds_only:
+        return upn
+
+    # respect --seeds-only
+    # O(n^2)!
+    seed_derived_nodes = {}
+    for ref, node in upn.items():
+        for seed in seeds.values():
+            if node.address == seed.address:
+                seed_derived_nodes[ref] = node
+                continue
+            if node.address not in discovery_ancestors:
+                continue
+            if seed.address in discovery_ancestors[node.address]:
+                seed_derived_nodes[ref] = node
+                continue
+    logs.logger.info("CLI arg --seeds-only=True: profiling seed derived nodes %s", ",".join(seed_derived_nodes))
+    return seed_derived_nodes
+
+
 # pylint:disable=too-many-locals
 async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noqa: C901, MC0001
     global discovery_ancestors  # pylint:disable=global-variable-not-assigned
@@ -53,7 +70,7 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noq
     for ref, node in seeds.items():
         logs.logger.info("Seeding database with node: %s", node.debug_id())
         # POPULATE ANCESTRY LIST
-        discovery_ancestors[id(node)] = initial_ancestors
+        discovery_ancestors[node.address] = initial_ancestors
         # REBUILD TREE NODES TO MERGE W/ INVENTORY
         saved_node = database.save_node(node)
         seeds[ref] = saved_node
@@ -63,18 +80,12 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noq
     unlocked_logging_sleep = 0.1
     unlocked_logging_max_sleep = 1
 
-    def _get_nodes_unprofiled() -> Dict[str, Node]:
-        upn = database.get_nodes_unprofiled(constants.CURRENT_RUN_TIMESTAMP)
-        if constants.ARGS.seeds_only:
-            return {r: n for r, n in upn.items() if n.address in [n.address for n in seeds.values()]}
-        return upn
-
-    while unprofiled_nodes := _get_nodes_unprofiled():
+    while unprofiled_nodes := _get_nodes_unprofiled(seeds):
         unlocked_nodes = {n_id: node for n_id, node in unprofiled_nodes.items() if not node.profile_locked()}
         if not unlocked_nodes:
-            pending = ",".join((n.address for n in unprofiled_nodes.values() if n.profile_locked()))
-            logs.logger.info("Waiting for %d pending profile jobs (%s) to complete, sleeping %.1f",
-                             len(unprofiled_nodes), pending, unlocked_logging_sleep)
+            pending = ",".join((f"{n.provider}:{n.address}" for n in unprofiled_nodes.values() if n.profile_locked()))
+            logs.logger.info("Waiting for %d pending profile jobs to complete, sleeping %.1f (%s)",
+                             len(unprofiled_nodes), unlocked_logging_sleep, pending)
             await asyncio.sleep(unlocked_logging_sleep)
             new_sleep = unlocked_logging_sleep + .1
             unlocked_logging_sleep = new_sleep if new_sleep < unlocked_logging_max_sleep else unlocked_logging_max_sleep
@@ -83,11 +94,11 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noq
 
         logs.logger.debug("Found %d nodes to profile", len(unlocked_nodes))
         node_id, node = next(iter(unlocked_nodes.items()))
-        if id(node) in discovery_ancestors:
-            ancestors = discovery_ancestors[id(node)]
+        if node.address in discovery_ancestors:
+            ancestors = discovery_ancestors[node.address]
         else:
             ancestors = []
-            discovery_ancestors[id(node)] = ancestors
+            discovery_ancestors[node.address] = ancestors
 
         depth = len(ancestors)
         logs.logger.debug("Profiling node %s at depth: %d", node_id, depth)
@@ -97,6 +108,7 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noq
                 node.aquire_profile_lock()
                 database.save_node(node)  # persists lock
                 await _discover_node(node_id, node, ancestors)
+                # await asyncio.wait_for(_discover_node(node_id, node, ancestors), constants.ARGS.timeout)
             finally:
                 logs.logger.info("Profile complete for %s, releasing lock", node_id)
                 node.set_profile_timestamp()
@@ -125,7 +137,6 @@ async def discover(seeds: Dict[str, Node], initial_ancestors: List[str]):  # noq
             logs.logger.error("Exception %s occurred connecting to %s:%s child of `%s`",
                               exc, node.provider, node.address, child_of)
             traceback.print_tb(exc.__traceback__)
-            sys.exit(1)
     logs.logger.info("Discovery/profile complete!")
 
 
@@ -137,10 +148,14 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         return node, {}
 
     depth = len(ancestors)
-    provider = providers.get_provider_by_ref(node.provider)
+    print(constants.ARGS.disable_providers)
+    if node.provider in constants.ARGS.disable_providers:
+        logs.logger.info("Skipping discovery for node: %s due to disabled provider: %s", node.debug_id(), node.provider)
+        return node, {}
 
+    provider = providers.get_provider_by_ref(node.provider)
     try:
-        logs.logger.info("Profiling node: %s", node.debug_id())
+        logs.logger.info("Discovery initiated for node: %s", node.debug_id())
         profiled_children = await _discovery_algo(node_ref, node, ancestors, provider, depth)
         logs.logger.info("Discovered %d children for node %s (%s): %s", len(profiled_children), node.debug_id(),
                          node.service_name, ",".join([n.debug_id() for n in profiled_children.values()]))
@@ -154,7 +169,7 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
             else:
                 database.save_node(child)
 
-            discovery_ancestors[id(child)] = ancestors + [node.service_name]
+            discovery_ancestors[child.address] = ancestors + [node.address]
             database.connect_nodes(node, profiled_children[ref])
     except (providers.TimeoutException, asyncio.TimeoutError):
         logs.logger.debug("TIMEOUT attempting to connect to %s with address: %s", node_ref, node.address)
@@ -184,11 +199,14 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
 
     # OPEN CONNECTION
     logs.logger.debug("Opening connection: %s", node.address)
-    conn = await asyncio.wait_for(provider.open_connection(node.address), constants.ARGS.timeout)
+    conn = await asyncio.wait_for(provider.open_connection(node.address), constants.ARGS.connection_timeout)
 
     # RUN SIDECAR
-    logs.logger.debug("Running sidecar for address %s", node.address)
-    await asyncio.wait_for(provider.sidecar(node.address, conn), constants.ARGS.timeout)
+    if constants.ARGS.skip_sidecar:
+        logs.logger.debug("Skipping sidecar for address %s due to --skip-sidecar CLI arg ", node.address)
+    else:
+        logs.logger.debug("Running sidecar for address %s", node.address)
+        await asyncio.wait_for(provider.sidecar(node.address, conn), constants.ARGS.timeout)
 
     # LOOKUP SERVICE NAME
     await asyncio.wait_for(_lookup_service_name(node, provider, conn), constants.ARGS.timeout)
@@ -311,7 +329,8 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
                                   node_transport.protocol_mux)
                 continue
             child_ref, child = create_node(node_transport)
-            children[child_ref] = child
+            if child:
+                children[child_ref] = child
 
     logs.logger.debug("Profiled %d non-excluded children from %d profile results for %s",
                       len(children), len(profile_results), service_name)
@@ -322,13 +341,18 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
     return nonexcluded_children
 
 
-def create_node(node_transport: NodeTransport) -> (str, Node):
+def create_node(node_transport: NodeTransport) -> (str, Optional[Node]):
     if constants.ARGS.obfuscate:
         node_transport = obfuscate.obfuscate_node_transport(node_transport)
-    # We are currently NOT passing through NODE_TYPE becuase Node.node_type defaults to COMPUTE, and while
+    # We are currently NOT passing through NODE_TYPE because Node.node_type defaults to COMPUTE, and while
     #   we have ways of updating the other NodeTypes - Astrolabe currently doesn't have a way of updating
     #   Node's to COMPUTE type.
-    # TODO: astrolabe needs a mechanism for determining NodeType other thans defaulting to COMPUTE!!!
+    # TODO: astrolabe needs a mechanism for determining NodeType other than defaulting to COMPUTE!!!
+    if node_transport.provider in constants.ARGS.disable_providers:
+        logs.logger.info("Skipping discovery for node: %s:%s due to disabled provider: %s",
+                         node_transport.provider, node_transport.address, node_transport.provider)
+        return "", None
+
     node = Node(
         profile_strategy_name=node_transport.profile_strategy_name,
         protocol=node_transport.protocol,

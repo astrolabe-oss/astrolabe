@@ -204,6 +204,10 @@ class ProviderAWS(ProviderInterface):
                 listeners = self.elb_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])['Listeners']
                 lb_port = listeners[0]['Port'] if listeners else None
                 tags_response = self.elb_client.describe_tags(ResourceArns=[lb['LoadBalancerArn']])
+                if _is_k8s_load_balancer(tags_response):
+                    # if it's k8s load balancer ignore it... it will be inventoried in the provider_k8s module
+                    logs.logger.debug("Skipping inventory of k8s related load balancer & related ASG/EC2: %s", lb_name)
+                    continue
                 lb_app_tag = _parse_app_name_tag(lb_name, tags_response)
                 if not lb_node:  # we only need this once
                     lb_node = Node(
@@ -226,12 +230,16 @@ class ProviderAWS(ProviderInterface):
                 for tgg in target_groups['TargetGroups']:
                     # ALB Target Group
                     tg_name = tgg['TargetGroupName']
-                    tg_port = tgg['Port']
+                    tg_port = tgg.get('Port')  # Port may not be present in some scenarios
                     logs.logger.debug("  Target Group: %s", tg_name)
                     target_health = self.elb_client.describe_target_health(TargetGroupArn=tgg['TargetGroupArn'])
                     for target in target_health['TargetHealthDescriptions']:
                         # ALB EC2 Instances
                         instance_id = target['Target']['Id']
+                        if instance_id.startswith("arn:aws:lambda:"):
+                            logs.logger.info("Skipping Lambda target: %s", instance_id)
+                            continue
+
                         auto_scaling_instances = self.asg_client.describe_auto_scaling_instances(
                             InstanceIds=[instance_id]
                         )
@@ -253,7 +261,7 @@ class ProviderAWS(ProviderInterface):
                                 asg_nodes[f"ASG_{asg_name}"] = asg_node
                                 database.save_node(asg_node)
                                 database.connect_nodes(lb_node, asg_node)
-                                logs.logger.info("Inventoried 1 AWS ASG node: %s", asg_node.debug_id())
+                                logs.logger.info("Inventoried 1 AWS ASG node: %s", asg_name)
                             instance_info = self.ec2_client.describe_instances(InstanceIds=[instance_id])
                             instance = instance_info['Reservations'][0]['Instances'][0]
                             public_ip = instance.get('PublicIpAddress')
@@ -276,7 +284,25 @@ class ProviderAWS(ProviderInterface):
                             database.save_node(ec2_node)
                             database.connect_nodes(asg_node, ec2_node)
                             logs.logger.info("Inventoried 1 AWS EC2 node: %s", ec2_node.debug_id())
-                logs.logger.info("Inventoried 1 AWS ALB node: %s", lb_node.debug_id())
+                logs.logger.info("Inventoried 1 AWS ALB node: %s", lb_name)
+
+
+def _is_k8s_load_balancer(tags_response: Dict[str, str]) -> bool:
+    if 'TagDescriptions' in tags_response and tags_response['TagDescriptions']:
+        for tag in tags_response['TagDescriptions'][0]['Tags']:
+            # Common Kubernetes tag patterns
+            if any((tag['Key'].startswith(t) for t in [
+                'kubernetes.io',
+                'KubernetesCluster',
+                'k8s.io/cluster',
+                'kubernetes:cluster',
+                'service.k8s.aws',
+                'elbv2.k8s.aws',
+                'kube'
+            ])):
+                return True
+
+    return False
 
 
 def _parse_app_name_tag(aws_resource_name: str, tags_response: Dict[str, str]):

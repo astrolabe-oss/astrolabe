@@ -11,8 +11,9 @@ SPDX-License-Identifier: Apache-2.0
 
 import typing
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import List, Optional
+import yaml
 from yaml import safe_load_all
 
 from astrolabe import config, constants, logs, network
@@ -93,6 +94,14 @@ def init():
     _load_profile_strategies()
 
 
+def _safe_dump(obj):
+    """Safely dump object to YAML, handling problematic types."""
+    try:
+        return yaml.dump(asdict(obj), default_flow_style=False, sort_keys=False)
+    except ValueError:
+        return str(obj)
+
+
 def _load_profile_strategies():
     for file in config.get_config_yaml_files():
         with open(file, 'r', encoding='utf-8') as stream:
@@ -111,4 +120,4 @@ def _load_profile_strategies():
                     )
                     profile_strategies.append(pfs)
                     logs.logger.debug('Loaded ProfileStrategy:')
-                    logs.logger.debug(pfs)
+                    logs.logger.debug(_safe_dump(pfs))

@@ -2,25 +2,26 @@
 type: "ProfileStrategy"
 description: "Discovered TCP connections by reading netstat output"
 name: "Netstat"
-providers: ["ssh", "k8s"]
+#providers: ["ssh", "k8s"]
+providers: ["ssh"]
 protocol: "TCP"
 providerArgs:
     shell_command: |
         # pre-requisties
-        which netstat >/dev/null || exit
+        command -v netstat >/dev/null || exit
 
         # determine listening ports on this instance
         listening_ports=$(netstat -lnt | awk '{print $4}' | awk -F: '{print $NF}' | grep '[0-9]' | sort | uniq | tr '\n' '|')
 
         # get connections on ports we are interested in
-        netstat -ant | awk '$5 ~ /:(3306|9042|9160|11211|5432|6379|80)$/ {print}' |
+        netstat -ant | awk '$5 ~ /:(3306|9042|9160|11211|5432|6379|80|443)$/ {print}' |
 
         # filter TCP responses - we only want originating requests this filters out HTTP server response to
         # clients on ephemeral ports which happen to be in our list of ports of interest
         awk '$4 !~ /:('"$listening_ports"')$/ {print $5}' |
 
         # exclude if self is the dest
-        grep -v $(hostname | sed 's/ip-//' | tr '-' '.') |
+        grep -v $(getent hosts $(head -n 1 /proc/sys/kernel/hostname | awk '{print $1}') 2>/dev/null | awk '{print $1}' || echo "127.0.0.1") |
 
         # only take 1 server per port
         tr ':' ' ' | sort -k2 | uniq | awk 'BEGIN{print "mux address"};$1$2!=uniqid{print $2,$1;uniqie=$1$2}'
@@ -30,6 +31,7 @@ childProvider:
         5432: "aws"
         6379: "aws"
         80: "k8s"
+        443: "k8s"
     default: "aws"
 rendererArgs:
     promviz:

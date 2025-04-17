@@ -259,3 +259,88 @@ class TestProviderAWS:
         assert deployment_node is not None, f"DEPLOYMENT node with address={asg_name} should exist"
         assert not hasattr(deployment_node, 'service_name') or deployment_node.service_name is None, \
             "DEPLOYMENT node should not have service_name when tag is missing"
+
+    def test_inventory_load_balancers_missing_port(self, patch_database, cli_args_mock,
+                                                   mock_boto3_setup, mock_boto3_client,
+                                                   lb_dns_name, asg_name, public_ip):
+        """Test that the code handles a target group without a Port attribute"""
+        # Arrange
+        cli_args_mock.aws_app_name_tag = 'AppName'
+        cli_args_mock.aws_use_private_ips = False
+        provider = ProviderAWS()
+
+        # Modify the ELB client response to remove the Port from the target group
+        elb_client = provider.elb_client
+        elb_client.describe_target_groups.return_value = {
+            'TargetGroups': [{
+                'TargetGroupName': 'test-tg',
+                # Port is intentionally missing
+                'TargetGroupArn': 'arn:aws:elasticloadbalancing:us-west-2:123456789012:targetgroup/test-tg/73e2d6bc24d8'
+            }]
+        }
+
+        # Act
+        # This should not raise a KeyError if fixed correctly
+        provider._inventory_load_balancers()  # pylint:disable=protected-access
+
+        # Assert
+        # Verify that the nodes were still created, even without a port
+        dns_lookup_nodes = dict(database.get_nodes_pending_dnslookup())
+        assert lb_dns_name in dns_lookup_nodes, "Traffic controller should still be created"
+
+        # Find the deployment node
+        deployment_node = database.get_node_by_address(asg_name)
+        assert deployment_node is not None, "Deployment node should still be created"
+
+        # Find the compute node using its IP address
+        compute_node = database.get_node_by_address(public_ip)
+        assert compute_node is not None, "Compute node should still be created"
+
+        # The compute node should have protocol_mux set to None or a default value
+        assert compute_node.protocol_mux is None or isinstance(compute_node.protocol_mux, int), \
+            "Compute node should have protocol_mux set to None or a default value"
+
+    @pytest.mark.parametrize("k8s_tag_key", [
+        'kubernetes.io/cluster',
+        'KubernetesCluster',
+        'k8s.io/cluster/',
+        'kubernetes:cluster',
+        'service.k8s.aws/stack',
+        'elbv2.k8s.aws/cluster',
+        'kubernetes-tag',
+        'kube-system',
+    ])
+    def test_k8s_tags_skip_node_creation(self, patch_database, cli_args_mock,
+                                         mock_boto3_setup, mock_boto3_client,
+                                         lb_dns_name, asg_name, public_ip, k8s_tag_key):
+        """Test that no nodes are created when Kubernetes tags are present on an ELB"""
+        # Arrange
+        cli_args_mock.aws_app_name_tag = 'AppName'
+        cli_args_mock.aws_use_private_ips = False
+        provider = ProviderAWS()
+        # Add Kubernetes tag to ELB
+        elb_client = provider.elb_client
+        elb_client.describe_tags.return_value = {
+            'TagDescriptions': [{
+                'Tags': [{'Key': k8s_tag_key, 'Value': 'test-value'}]
+            }]
+        }
+
+        # Act
+        provider._inventory_load_balancers()  # pylint:disable=protected-access
+
+        # Assert
+        # Check that no TRAFFIC_CONTROLLER node is created for the LB DNS name
+        dns_lookup_nodes = dict(database.get_nodes_pending_dnslookup())
+        assert lb_dns_name not in dns_lookup_nodes, \
+            f"Traffic controller with DNS name {lb_dns_name} should not be created for a Kubernetes ELB"
+
+        # Check that no DEPLOYMENT node is created for the ASG
+        deployment_node = database.get_node_by_address(asg_name)
+        assert deployment_node is None, \
+            f"DEPLOYMENT node with address={asg_name} should not be created for a Kubernetes ELB"
+
+        # Check that no COMPUTE node is created for the EC2 instance
+        compute_node = database.get_node_by_address(public_ip)
+        assert compute_node is None, \
+            f"COMPUTE node with address={public_ip} should not be created for a Kubernetes ELB"

@@ -33,9 +33,14 @@ def clear_caches():
     discover.discovery_ancestors = {}
 
 
-@pytest.fixture(autouse=True)
-def set_default_timeout(cli_args_mock):
+@pytest.fixture(autouse=True, scope="function")
+def set_default_cli_args(cli_args_mock):
     cli_args_mock.timeout = 30
+    cli_args_mock.connection_timeout = 1
+    cli_args_mock.skip_sidecar = False
+    cli_args_mock.obfuscate = False
+
+    return cli_args_mock
 
 
 @pytest.fixture(autouse=True)
@@ -51,11 +56,6 @@ def hint_mock(protocol_fixture, mocker) -> MagicMock:
     mocker.patch('astrolabe.network.hints', [hint_mock])
 
     return hint_mock
-
-
-@pytest.fixture(autouse=True)
-def set_default_cli_args(cli_args_mock):
-    cli_args_mock.obfuscate = False
 
 
 # helpers
@@ -92,17 +92,17 @@ async def test_discover_case_respects_profile_locking(tree, provider_mock):
 
 
 # Discover stack processing
-@pytest.mark.parametrize('exc, causes_exit', [
-    (None, False),
-    (providers.TimeoutException, False),
-    (asyncio.TimeoutError, False),
-    (discover.DiscoveryException, True),
-    (Exception, True)
+@pytest.mark.parametrize('exc', [
+    None,
+    providers.TimeoutException,
+    asyncio.TimeoutError,
+    discover.DiscoveryException,
+    Exception
 ])
 @pytest.mark.asyncio
-async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, causes_exit, utcnow):
-    """Whether profile is success, causes a non-exiting exception, or an exiting exception
-        profile_complete() should always be marked!"""
+async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, utcnow):
+    """Whether profile is success or raises an exception profile_complete() should always be marked.
+       We never bubble up the exception to stop execution of the main program"""
     # arrange
     node1 = list(tree.values())[0]
     provider_mock.open_connection.side_effect = exc
@@ -111,11 +111,7 @@ async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, cau
     assert not node1.profile_complete(utcnow)
 
     # act
-    if causes_exit:
-        with pytest.raises(SystemExit):
-            await discover.discover(tree, [])
-    else:
-        await discover.discover(tree, [])
+    await discover.discover(tree, [])
     await _wait_for_all_tasks_to_complete()
 
     # assert
@@ -184,7 +180,7 @@ async def test_discover_case_open_connection_handles_timeout_exception(tree, pro
 async def test_discover_case_open_connection_handles_timeout(tree, provider_mock, cli_args_mock):
     """A natural timeout during ProviderInterface::open_connections is also handled by setting TIMEOUT error"""
     # arrange
-    cli_args_mock.timeout = .1
+    cli_args_mock.connection_timeout = .1
 
     async def slow_open_connection(_):
         await asyncio.sleep(1)
@@ -200,14 +196,14 @@ async def test_discover_case_open_connection_handles_timeout(tree, provider_mock
 
 @pytest.mark.asyncio
 async def test_discover_case_open_connection_handles_exceptions(tree, provider_mock):
-    """Handle any other exceptions thrown by ProviderInterface::open_connection by exiting the program"""
+    """Handle any exceptions thrown by ProviderInterface::open_connection.
+       We never exit the main program"""
     # arrange
     provider_mock.open_connection.side_effect = Exception('BOOM')
 
     # act/assert
-    with pytest.raises(SystemExit):
-        await discover.discover(tree, [])
-        await _wait_for_all_tasks_to_complete()
+    await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
 
 
 # Calls to ProviderInterface::lookup_name
@@ -235,7 +231,7 @@ async def test_discover_case_lookup_name_uses_cache(tree, provider_mock, ps_mock
 
 @pytest.mark.asyncio
 async def test_discover_case_lookup_name_handles_timeout(tree, provider_mock, cli_args_mock):
-    """Timeout is handled during lookup_name and results in a sys.exit"""
+    """Timeout is handled during lookup_name and does not result in a sys.exit"""
     # arrange
     cli_args_mock.timeout = .1
 
@@ -244,19 +240,17 @@ async def test_discover_case_lookup_name_handles_timeout(tree, provider_mock, cl
     provider_mock.lookup_name = slow_lookup_name
 
     # act/assert
-    with pytest.raises(SystemExit):
-        await discover.discover(tree, [])
+    await discover.discover(tree, [])
 
 
 @pytest.mark.asyncio
 async def test_discover_case_lookup_name_handles_exceptions(tree, provider_mock):
-    """Any exceptions thrown by lookup_name are handled by exiting the program"""
+    """Any exceptions thrown by lookup_name are handled and do not result in a sys.exit"""
     # arrange
     provider_mock.lookup_name.side_effect = Exception('BOOM')
 
     # act/assert
-    with pytest.raises(SystemExit):
-        await discover.discover(tree, [])
+    await discover.discover(tree, [])
 
 
 # pylint:disable=too-many-arguments,too-many-positional-arguments
@@ -312,15 +306,14 @@ async def test_discover_case_profile_handles_timeout(tree, provider_mock, cli_ar
 
 @pytest.mark.asyncio
 async def test_discover_case_profile_handles_exceptions(tree, provider_mock, cli_args_mock):
-    """Any exceptions thrown by profile are handled by exiting the program"""
+    """Any exceptions thrown by profile are handled and we do not exit the program"""
     # arrange
     cli_args_mock.timeout = .1
     provider_mock.lookup_name.return_value = 'dummy'
     provider_mock.open_connection.side_effect = Exception('BOOM')
 
     # act/assert
-    with pytest.raises(SystemExit):
-        await discover.discover(tree, [])
+    await discover.discover(tree, [])
 
 
 # handle Cycles
@@ -431,14 +424,10 @@ async def test_discover_case_children_without_address_not_profiled(tree, provide
     # pylint:disable=protected-access
     discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
 
-    # TODO: feature is broken where we can save node w/out address or alias (protocol_mux only)
-    #        remove this pytest.raises once this is fixed
-    # act
-    with pytest.raises(SystemExit):
-        await discover.discover(tree, [])
-        await _wait_for_all_tasks_to_complete()
-        # assert
-        assert 1 == discover_node_spy.call_count
+    await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
+    # assert
+    assert 1 == discover_node_spy.call_count
 
 
 # Hints
@@ -609,36 +598,58 @@ async def test_discover_case_respect_cli_obfuscate(tree, provider_mock, cli_args
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('seeds_only,expected_profile_calls,expected_discover_node_calls', [
-    (True, 1, 1),  # When seeds_only=True: profile seed only, no _discover_node calls for children
-    (False, 2, 2)  # When seeds_only=False: profile seed and child, _discover_node called for both
-])
-async def test_discover_case_respect_cli_seeds_only(tree, provider_mock, cli_args_mock, mocker, protocol_mock,
-                                                    seeds_only, expected_profile_calls, expected_discover_node_calls):
-    """With --seeds-only=True, we only profile the seed nodes and not any discovered children.
-       With --seeds-only=False, we profile both seed nodes and discovered children."""
+@pytest.mark.parametrize('skip_sidecar', [True, False])
+async def test_discover_case_respect_cli_skip_sidecar(tree, provider_mock, cli_args_mock, skip_sidecar):
+    """Test that --skip-sidecar CLI argument prevents sidecar from being called"""
     # arrange
-    cli_args_mock.seeds_only = seeds_only
-    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref(), protocol_mock, 'dummy_protocol_mux', 'dummy_address')
-    provider_mock.lookup_name.side_effect = ['seed_name', 'child_name']
-    provider_mock.profile.side_effect = [[child_nt], []]
-    # pylint:disable=protected-access
-    discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
+    cli_args_mock.skip_sidecar = True
 
     # act
     await discover.discover(tree, [])
     await _wait_for_all_tasks_to_complete()
 
     # assert
-    # Verify the correct number of profile calls were made
-    assert provider_mock.profile.call_count == expected_profile_calls
+    assert provider_mock.sidecar.call_count == 0 if skip_sidecar else 1
+    # discovery normal otherwise
+    provider_mock.open_connection.assert_called_once()
+    provider_mock.lookup_name.assert_called_once()
+    provider_mock.profile.assert_called_once()
 
-    # Verify the child was added to the tree
-    children = _fake_database.get_connections(list(tree.values())[0])
-    assert len(children) == 1
 
-    # Verify _discover_node was called the expected number of times
-    assert discover_node_spy.call_count == expected_discover_node_calls
+@pytest.mark.asyncio
+@pytest.mark.parametrize('seeds_only', [True, False])
+async def test_discover_case_respect_cli_seeds_only(tree, provider_mock, cli_args_mock, mocker, protocol_mock,
+                                                    node_fixture_factory, seeds_only):
+    """Test that --seeds-only profiles seed nodes and their children, but not inventory nodes."""
+    # Arrange
+    cli_args_mock.seeds_only = seeds_only
+    seed_node = list(tree.values())[0]
+
+    # arrange child node
+    child_nt = node.NodeTransport('PS_NAME', provider_mock.ref(), protocol_mock, 'dummy_protocol_mux', 'child_address')
+    provider_mock.lookup_name.return_value = 'dummy_name'
+    provider_mock.profile.return_value = [child_nt]
+
+    # arrange inventory_node
+    inventory_node = node_fixture_factory()
+    inventory_node.provider = 'INV'
+    inventory_node.address = 'inventory_node_address'
+    _fake_database.save_node(inventory_node)
+
+    # arrange spies
+    # pylint:disable=protected-access
+    discover_node_spy = mocker.patch('astrolabe.discover._discover_node', side_effect=discover._discover_node)
+
+    # Act
+    await discover.discover(tree, [])
+    await _wait_for_all_tasks_to_complete()
+
+    # Assert
+    # Get addresses of nodes that were profiled
+    profiled = [call[0][1].address for call in discover_node_spy.call_args_list]
+    assert seed_node.address in profiled
+    assert 'child_address' in profiled
+    assert inventory_node.address not in profiled if seeds_only else inventory_node.address in profiled
 
 
 # respect profile_strategy / network configurations
