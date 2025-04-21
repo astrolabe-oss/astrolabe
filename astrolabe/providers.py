@@ -127,6 +127,10 @@ async def perform_inventory():
         logs.logger.info("Skipping inventory due to cli arg --seeds-only")
         return
 
+    if constants.ARGS.skip_inventory:
+        logs.logger.info("Skipping inventory due to cli arg --skip-inventory")
+        return
+
     for provider in [p for p in _provider_registry.get_registered_plugins()
                      if p.ref() not in (constants.ARGS.disable_providers or [])]:
         # provider: ProviderInterface
@@ -180,6 +184,7 @@ def _create_node_transport_from_profile_strategy_response_line(header_line: str,
 
     # field transforms/requirements
     if 'mux' not in fields:
+        logs.logger.error(fields)
         raise CreateNodeTransportException("protocol_mux missing from profile strategy results")
     if 'metadata' in fields:
         fields['metadata'] = dict(tuple(i.split('=') for i in fields['metadata'].split(',')))

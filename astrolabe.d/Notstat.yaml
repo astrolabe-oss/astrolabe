@@ -2,13 +2,14 @@
 type: "ProfileStrategy"
 description: "Discover TCP connections by reading /proc/net/tcp filesystem"
 name: "Notstat"
-providers: ["ssh", "k8s"]
+#providers: ["ssh", "k8s"]
+providers: ["k8s"]
 protocol: "TCP"
 providerArgs:
     shell_command: |
         # pre-requisites
         # if netstat is installed - let the Netstat profile strategy handle profiling
-        which netstat >/dev/null && exit
+        command -v netstat >/dev/null && exit
         
         # Function to sample /proc/net/tcp for a specified duration
         # Capturing only the essential information for connection identification
@@ -27,6 +28,8 @@ providerArgs:
             while [ $(date +%s) -lt $end_time ]; do
                 # Only grab local address, remote address, and state (columns 2, 3, 4)
                 awk 'NR>1 {print $2, $3, $4}' /proc/net/tcp >> "$output_file"
+                # Also check tcp6 for IPv4-mapped addresses (common in Docker)
+                awk 'NR>1 {print $2, $3, $4}' /proc/net/tcp6 >> "$output_file" 2>/dev/null
             done
         }
         
@@ -52,9 +55,22 @@ providerArgs:
                 rem_ip_hex=$(echo $rem | cut -d: -f1)
                 rem_port_hex=$(echo $rem | cut -d: -f2)
         
-                # Convert hex IP to decimal IP
-                local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$local_ip_hex" | cut -c7-8)" 0x"$(echo "$local_ip_hex" | cut -c5-6)" 0x"$(echo "$local_ip_hex" | cut -c3-4)" 0x"$(echo "$local_ip_hex" | cut -c1-2)")
-                rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$rem_ip_hex" | cut -c7-8)" 0x"$(echo "$rem_ip_hex" | cut -c5-6)" 0x"$(echo "$rem_ip_hex" | cut -c3-4)" 0x"$(echo "$rem_ip_hex" | cut -c1-2)")
+                # Check if this is from tcp6 and an IPv4-mapped address
+                if [ ${#local_ip_hex} -gt 8 ]; then
+                    # This is from tcp6 - check if it's an IPv4-mapped address
+                    if [ "${local_ip_hex:0:24}" = "0000000000000000FFFF0000" ]; then
+                        # IPv4-mapped address - extract the IPv4 part
+                        local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${local_ip_hex:24:2}" 0x"${local_ip_hex:26:2}" 0x"${local_ip_hex:28:2}" 0x"${local_ip_hex:30:2}")
+                        rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${rem_ip_hex:24:2}" 0x"${rem_ip_hex:26:2}" 0x"${rem_ip_hex:28:2}" 0x"${rem_ip_hex:30:2}")
+                    else
+                        # Skip true IPv6 addresses
+                        continue
+                    fi
+                else
+                    # Convert hex IP to decimal IP
+                    local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$local_ip_hex" | cut -c7-8)" 0x"$(echo "$local_ip_hex" | cut -c5-6)" 0x"$(echo "$local_ip_hex" | cut -c3-4)" 0x"$(echo "$local_ip_hex" | cut -c1-2)")
+                    rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$rem_ip_hex" | cut -c7-8)" 0x"$(echo "$rem_ip_hex" | cut -c5-6)" 0x"$(echo "$rem_ip_hex" | cut -c3-4)" 0x"$(echo "$rem_ip_hex" | cut -c1-2)")
+                fi
         
                 # Convert hex port to decimal port
                 local_port_dec=$(printf "%d\n" 0x$local_port_hex)
@@ -83,11 +99,11 @@ providerArgs:
         # Process the data in one go
         echo "$ALL_CONNECTIONS" | 
             # get connections on ports we are interested in
-            awk '$2 ~ /:(3306|9042|9160|11211|5432|6379|80)$/ {print}' |
+            awk '$2 ~ /:(3306|9042|9160|11211|5432|6379|80|443)$/ {print}' |
             # filter TCP responses - we only want originating requests
             awk '$1 !~ /:('"$LISTENING_PORTS"')$/ {print $2}' |
             # exclude if self is the dest
-            grep -v $(hostname -i) |
+            grep -v $(getent hosts $(head -n 1 /proc/sys/kernel/hostname | awk '{print $1}') 2>/dev/null | awk '{print $1}' || echo "127.0.0.1") |
             # only take 1 server per port
             tr ':' ' ' | sort -k2 | uniq | 
             awk 'BEGIN{print "mux address"};$1$2!=uniqid{print $2,$1;uniqid=$1$2}'
@@ -97,6 +113,7 @@ childProvider:
         5432: "aws"
         6379: "aws"
         80: "k8s"
+        443: "k8s"
     default: "aws"
 rendererArgs:
     promviz:

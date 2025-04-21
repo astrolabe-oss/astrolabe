@@ -58,10 +58,23 @@ def main():
     command.parse_args()
     constants.ARGS, _ = cli_args.argparser.parse_known_args()
     if constants.ARGS.debug:
-        constants.PP.pprint(constants.ARGS)
+        _debug_print_args()
     command.exec()
     database.close()
     print(f"\nGoodbye, {getpass.getuser()}\n", file=sys.stderr)
+
+
+def _debug_print_args():
+    print("\nCommand line arguments:", file=sys.stderr)
+    print("----------------------", file=sys.stderr)
+    for arg_name, arg_value in vars(constants.ARGS).items():
+        if isinstance(arg_value, list):
+            print(f"{arg_name}:", file=sys.stderr)
+            for item in arg_value:
+                print(f"  - {item}", file=sys.stderr)
+        else:
+            print(f"{arg_name}: {arg_value}", file=sys.stderr)
+    print("----------------------\n", file=sys.stderr)
 
 
 def _parse_builtin_args():
@@ -139,6 +152,8 @@ class DiscoverCommand(Command):
         asyncio.get_event_loop().run_until_complete(providers.perform_inventory())
 
     def _generate_tree(self) -> Dict[str, node.Node]:
+        if constants.ARGS.inventory_only:
+            return {}
         tree = asyncio.get_event_loop().run_until_complete(_discover_network())
         export_json.dump(tree, constants.LASTRUN_FILE)
         return tree
@@ -155,7 +170,12 @@ async def _discover_network():
             export_ascii.export_tree(tree, [], out=sys.stderr, print_slowly_for_humans=True)
         )
     else:
-        await discover.discover(tree, [])
+        try:
+            await discover.discover(tree, [])
+        except Exception as e:  # pylint:disable=broad-exception-caught
+            print(f"Error during discovery process export: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+        # try to print anyways
         try:
             await export_ascii.export_tree(tree, [], out=sys.stderr, print_slowly_for_humans=True)
         except Exception as e:  # pylint:disable=broad-exception-caught

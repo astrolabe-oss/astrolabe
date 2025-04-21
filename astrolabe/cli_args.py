@@ -72,8 +72,16 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
                                  'e.g. "ssh:10.0.0.42" or "k8s:widget-machine-5b5bc8f67f-2qmkp')
     discover_p.add_argument('-S', '--seeds-only', action='store_true',
                             help="Only profile seeds (and not inventoried nodes)")
+    discover_p.add_argument('-I', '--skip-inventory', action='store_true',
+                            help="Skip running the inventory process entirely")
+    discover_p.add_argument('-i', '--inventory-only', action='store_true',
+                            help="Only run the inventory process, not node profiling")
+    discover_p.add_argument('-H', '--skip-sidecar', action='store_true',
+                            help="Skip running the sidecar processes (including hostname lookups)")
     discover_p.add_argument('-t', '--timeout', type=int, default=180, metavar='TIMEOUT',
                             help='Timeout when discovering a node')
+    discover_p.add_argument('-T', '--connection-timeout', type=int, default=10, metavar='TIMEOUT',
+                            help='Timeout when establishing a connection to a node')
     discover_p.add_argument('-d', '--max-depth', type=int, default=100, metavar='DEPTH',
                             help='Max tree depth to discover')
     discover_p.add_argument('-X', '--disable-providers', nargs='+', default=[], metavar='PROVIDER',

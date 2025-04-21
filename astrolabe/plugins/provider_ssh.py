@@ -188,8 +188,9 @@ def _get_ssh_config_for_host(host: str) -> dict:
     try:
         with open(user_config_file, encoding="utf8") as open_file:
             ssh_config.parse(open_file)
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         print("%s file could not be found. Aborting.", user_config_file)
+        print(e)
         sys.exit(1)
 
     return ssh_config.lookup(host)
