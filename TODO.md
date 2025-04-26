@@ -1,49 +1,44 @@
 ### OSS RELEASE FOLLOW UPS
-* [ ] code
-  * [ ] astrolabe CI/CD move to github
-  * [ ] corelib/platdb CI/CD move to github
-* [ ] oss
+  * [x] rename astrolabe-oss/corelib repo to platdb?
+  * [x] pynapple repo filter and port over to example repo
+  * [x] example app - terraform repo
   * [ ] demo video for README
-  * [ ] rename astrolabe-oss/corelib repo to platdb?
-  * [ ] pynapple repo filter and port over to example repo
-  * [ ] example app - terraform repo
-  * [ ] move cartographer to private repo
   * [ ] credit image: https://commons.wikimedia.org/wiki/File:Astrolabe.png
 
 ### BUGS
 * [x] `cli_args.py`: configargparse doesn't let parse lists in config file! (NOV 2024)
 * [ ] cannot save nodes with no address or alias (used to be able to save nodes with protocol_mux only, this died during the neo4j refactor)
-* [ ] `timeout` seems to be no timeout for profiling/discovery any more.  non-ssh-able seeds will hang `discover` forever!
+
+### RETHINK
+* [ ] Rethink:  ProfileStrategy: RemoteProfile vs LocalProfile?
+* [ ] Rethink:  address/name.  For example, should "address" be the DNS name for a load balancer?  What is address exactly?
+* [ ] Rethink: hould application be a "tag" not a Node?
+* [ ] Rethink: Unknown/Null node types.
+* [ ] Rethink: provider determination - shotgun lookup instead of configured?
+* [ ] Rethink: export, json.  Entire graph vs seed?  Seed for export?  Last run?
+* [ ] Rethink: NodeTransport.  Do we even need it anymore?
 
 ### FEATURES/IMPROVEMENTS
 * [x] FEATURE - export mermaid (NOV 2024)
-* [ ] UNKNOWN platdb node type!
-* [ ] Rename discover/profile?
-  * [ ] rename ProfileStrategy -> RemoteDiscoveryScript
-* [ ] should "address" be the DNS name for a load balancer?
-* [ ] should application be a "tag" not a Node?
-* [ ] seed auto discovery
-* [ ] ProfileStrategies
-  * [ ] a queuing system
-* [ ] Providers
-  * [ ] c7n provider
- * [ ] ProfileStrategy::childProviders: rewrite provider lookup to be a shotgun approach instead of configured?
- * [ ] EXPORTERS: optionally export entire graph or just tree from passed in seeds 
-
-### REFACTORS/TESTS
-* [ ] `node.py`: remove Node.children field (should be unused logically - cruft remains mainly in tests)
-* [ ] `node.py`: get ride of NodeTransport?
+* [ ] Seed auto discovery based on inventory 
 * [ ] `database.py`: neo4j vars should be looked up in ENV vars as well.  (Can we do this by convention for all args?)
-* [ ] `discover.py`: tests for idempotency runs
+* [ ] `discover.py`: is it idempotent right now?
 * [ ] `database.py`: get rid of database.node_is* funcs, these shouldn't require a database call
+
+### CRUFT
+* [ ] `node.py`: remove Node.children field (should be unused logically - cruft remains mainly in tests)
 * [ ] `node.py`: Node.profile_stategy_name is just for logging/audit, move to somethign like -> Node.discovery_audit
 * [ ] `node.py`: move discover.create_node() -> node.create_node()
 * [ ] `database.py`: need tests for logic/transforms, etc
+
+### BIG RELEASES
+* [ ] `temporalness` - introduce the concept of time/when to solve for changing infra
 
 ### Documentation:
 * [ ] Profile Strategies - examples
 * [ ] Writing Custom Plugins/Providers - example
 * [ ] Env Vars
+* [ ] Install doc
 
 ### FOR OSS RELEASE (NOV 2024)
 * [x] code
@@ -66,3 +61,7 @@
 * [x] profile(.., pfs, ...) -> profile(.., pfs[], ...)
 * [x] rename profile_strategy_used_name -> profile_strategy_name
 
+### DESIGN PHILOSOPHY
+* Convention over Configuration
+* Defensive Programming (log and proceed)
+* Allow incomplet
