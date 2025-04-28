@@ -19,6 +19,7 @@ import configargparse
 from termcolor import colored
 
 import astrolabe.plugins
+from astrolabe import logs
 
 
 def import_plugin_classes():
@@ -106,6 +107,7 @@ class PluginFamilyRegistry:
             p_obj = plugin()
             asyncio.get_event_loop().run_until_complete(p_obj.init_async())
             self._plugin_registry[plugin.ref()] = p_obj
+            logs.logger.debug("Registered plugin: %s (%s)", plugin.ref(), plugin)
 
     def cleanup_plugins(self):
         loop = asyncio.get_event_loop()
@@ -118,6 +120,7 @@ class PluginFamilyRegistry:
         except KeyError as exc:
             print(colored(f"Attempted to load invalid plugin: {ref}", 'red'))
             print(colored(exc, 'yellow'))
+            print(colored(f"Available plugins: {','.join(self._plugin_registry)}"))
             sys.exit(1)
 
     def get_registered_plugin_refs(self) -> List[str]:

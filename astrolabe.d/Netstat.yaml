@@ -28,11 +28,8 @@ providerArgs:
 childProvider:
     type: "matchPort"
     matches:
-        5432: "aws"
-        6379: "aws"
-        80: "k8s"
-        443: "k8s"
-    default: "aws"
-rendererArgs:
-    promviz:
-
+        5432: ["aws", "RESOURCE"]
+        6379: ["aws", "RESOURCE"]
+        80: ["k8s", "COMPUTE"]
+        443: ["k8s", "COMPUTE"]
+    default: ["k8s", "UNKNOWN"]

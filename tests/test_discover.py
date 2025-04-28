@@ -335,6 +335,73 @@ async def test_discover_case_cycle(tree, provider_mock, utcnow):
     provider_mock.profile.assert_not_called()
 
 
+@pytest.mark.parametrize("ip_addr,expected_public,desc", [
+    # Public IP addresses
+    ("52.84.167.93", True, "random public IP"),
+    ("104.18.22.46", True, "random public IP"),
+    ("52.84.167.93", True, "random public IP"),
+    ("8.8.8.8", True, "public IP (Google DNS)"),
+    ("0.0.0.0", True, "unspecified IP"),
+
+    # Private IP addresses
+    ("10.0.0.1", False, "private IP (10.x.x.x)"),
+    ("172.16.0.1", False, "private IP (172.16-31.x.x)"),
+    ("192.168.1.1", False, "private IP (192.168.x.x)"),
+
+    # Special cases
+    ("127.0.0.1", False, "loopback IP"),
+    ("224.0.0.1", False, "multicast IP"),
+    ("169.254.0.1", False, "link-local IP"),
+
+    # Invalid IP
+    ("not-an-ip", False, "invalid IP format"),
+])
+def test_create_node_ip_address_classification(mocker, ip_addr, expected_public, desc):
+    """Tests the IP address classification logic through the create_node method"""
+    # arrange
+    mocker.patch('astrolabe.discover.providers.get_provider_by_ref')
+    nt = mocker.MagicMock(address=ip_addr)
+
+    # act
+    _, node = discover.create_node(nt)
+
+    # assert
+    assert node.public_ip == expected_public, f"public_ip flag wrong for {desc}: {ip_addr}"
+
+
+# def test_create_node_with_disabled_provider(mocker):
+#     """Tests that create_node correctly handles disabled providers"""
+#     # Mock constants.ARGS settings
+#     mocker.patch('astrolabe.discover.constants.ARGS.obfuscate', False)
+#     mocker.patch('astrolabe.discover.constants.ARGS.disable_providers', ["disabled-provider"])
+#
+#     # Mock provider
+#     provider_mock = mocker.MagicMock()
+#     provider_mock.is_container_platform.return_value = False
+#     mocker.patch('astrolabe.discover.providers.get_provider_by_ref', return_value=provider_mock)
+#
+#     # Create NodeTransport with a disabled provider
+#     transport = mocker.MagicMock(
+#         profile_strategy_name="test-strategy",
+#         protocol=mocker.MagicMock(ref="test-protocol"),
+#         protocol_mux="test-mux",
+#         provider="disabled-provider",
+#         from_hint=False,
+#         address="8.8.8.8",
+#         debug_identifier="test-identifier",
+#         metadata={},
+#         node_type=mocker.MagicMock(),
+#         num_connections=1
+#     )
+#
+#     # Call the function being tested
+#     node_ref, node = discover.create_node(transport)
+#
+#     # Should return empty ref and None node for disabled provider
+#     assert node_ref == ""
+#     assert node is None
+
+
 @pytest.mark.asyncio
 async def test_discover_case_service_name_rewrite_cycle_detected(tree, provider_mock, mocker):
     """Validate cycles are detected for rewritten service names"""

@@ -10,6 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import asyncio
+import ipaddress
 import traceback
 
 from typing import Dict, List, Optional
@@ -54,12 +55,11 @@ def _get_nodes_unprofiled(seeds: Dict[str, Node]) -> Dict[str, Node]:
             if node.address == seed.address:
                 seed_derived_nodes[ref] = node
                 continue
-            if node.address not in discovery_ancestors:
-                continue
-            if seed.address in discovery_ancestors[node.address]:
+            if node.address in discovery_ancestors and seed.address in discovery_ancestors[node.address]:
                 seed_derived_nodes[ref] = node
                 continue
-    logs.logger.info("CLI arg --seeds-only=True: profiling seed derived nodes %s", ",".join(seed_derived_nodes))
+            continue
+    logs.logger.debug("CLI arg --seeds-only=True: profiling seed derived nodes [%s]", ",".join(seed_derived_nodes))
     return seed_derived_nodes
 
 
@@ -158,7 +158,8 @@ async def _discover_node(node_ref: str, node: Node, ancestors: List[str]):
         logs.logger.info("Discovery initiated for node: %s", node.debug_id())
         profiled_children = await _discovery_algo(node_ref, node, ancestors, provider, depth)
         logs.logger.info("Discovered %d children for node %s (%s): %s", len(profiled_children), node.debug_id(),
-                         node.service_name, ",".join([n.debug_id() for n in profiled_children.values()]))
+                         node.service_name, ",".join([f"{n.node_type.value}:{n.debug_id()}"
+                                                      for n in profiled_children.values()]))
         # if we have inventoried this node already, use that!
         for ref, child in profiled_children.items():
             inventory_node = database.get_node_by_address(child.address)
@@ -344,25 +345,24 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
 def create_node(node_transport: NodeTransport) -> (str, Optional[Node]):
     if constants.ARGS.obfuscate:
         node_transport = obfuscate.obfuscate_node_transport(node_transport)
-    # We are currently NOT passing through NODE_TYPE because Node.node_type defaults to COMPUTE, and while
-    #   we have ways of updating the other NodeTypes - Astrolabe currently doesn't have a way of updating
-    #   Node's to COMPUTE type.
-    # TODO: astrolabe needs a mechanism for determining NodeType other than defaulting to COMPUTE!!!
     if node_transport.provider in constants.ARGS.disable_providers:
         logs.logger.info("Skipping discovery for node: %s:%s due to disabled provider: %s",
                          node_transport.provider, node_transport.address, node_transport.provider)
         return "", None
 
+    public_ip = _is_public_ip(node_transport.address)
     node = Node(
         profile_strategy_name=node_transport.profile_strategy_name,
         protocol=node_transport.protocol,
         protocol_mux=node_transport.protocol_mux,
-        provider=node_transport.provider,
+        provider='www' if public_ip else node_transport.provider,
         containerized=providers.get_provider_by_ref(node_transport.provider).is_container_platform(),
         from_hint=node_transport.from_hint,
+        public_ip=public_ip,
         address=node_transport.address,
         service_name=node_transport.debug_identifier if node_transport.from_hint else None,
         metadata=node_transport.metadata,
+        node_type=node_transport.node_type
     )
 
     # warnings/errors
@@ -375,3 +375,16 @@ def create_node(node_transport: NodeTransport) -> (str, Optional[Node]):
                         node_transport.protocol_mux, node_transport.debug_identifier]
                         if x is not None)
     return node_ref, node
+
+
+def _is_public_ip(ip_string):
+    try:
+        ip = ipaddress.ip_address(ip_string)
+        if ip.is_unspecified:
+            # for our implementation we are considering unknown as "public"
+            return True
+        if ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+            return False
+        return not ip.is_private
+    except ValueError:
+        return False

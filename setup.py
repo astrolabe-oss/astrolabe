@@ -28,6 +28,7 @@ setup(
         'boto3~=1.16',
         'configargparse~=1.2',
         'coolname~=2.0',
+        'ipinfo~=5.1',
         'faker>=4.1',
         'kubernetes_asyncio~=30.3',
         'paramiko~=3.4',

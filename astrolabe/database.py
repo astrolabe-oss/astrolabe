@@ -34,7 +34,8 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         platdb.Compute: NodeType.COMPUTE,
         platdb.Deployment: NodeType.DEPLOYMENT,
         platdb.Resource: NodeType.RESOURCE,
-        platdb.TrafficController: NodeType.TRAFFIC_CONTROLLER
+        platdb.TrafficController: NodeType.TRAFFIC_CONTROLLER,
+        platdb.Unknown: NodeType.UNKNOWN
     }
 
     node = Node(
@@ -42,8 +43,9 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         protocol=network._protocols.get(platdb_node.protocol),  # pylint:disable=protected-access
         protocol_mux=platdb_node.protocol_multiplexor,
         provider=platdb_node.provider,
-        containerized=False,  # I don't know what else to put here
+        containerized=platdb_node.provider == 'k8s',
         from_hint=False,  # No hints in the sandbox for now
+        public_ip=platdb_node.public_ip,
         address=platdb_node.address,
         service_name=platdb_node.app_name,
         node_name=platdb_node.name,
@@ -82,6 +84,7 @@ def save_node(node: Node) -> Node:
         'profile_timestamp': node.get_profile_timestamp(),
         'profile_lock_time': node.get_profile_lock_time(),
         'provider': node.provider,
+        'public_ip': node.public_ip,
         'profile_warnings': node.warnings,
         'profile_errors': node.errors
     }
@@ -95,6 +98,8 @@ def save_node(node: Node) -> Node:
         pdb_node = _merge_resource(node, props)
     elif node.node_type == NodeType.TRAFFIC_CONTROLLER:
         pdb_node = _merge_traffic_controller(node, props)
+    elif node.node_type == NodeType.UNKNOWN:
+        pdb_node = _merge_unknown(node, props)
     else:
         raise Exception(f"Unknown node type {node.node_type}!")  # pylint:disable=broad-exception-raised
 
@@ -113,7 +118,12 @@ def _merge_deployment(node: Node, props: dict) -> platdb.PlatDBNode:  # pylint:d
     deployment = platdb.Deployment.create_or_update(props)[0]
 
     if node.service_name:
-        app = platdb.Application.create_or_update({"name": node.service_name})[0]
+        app = platdb.Application.create_or_update(
+            {
+                "name": node.service_name,
+                "app_name": node.service_name,
+            }
+        )[0]
         deployment.application.replace(app)
         app.deployments.connect(deployment)
 
@@ -133,6 +143,12 @@ def _merge_traffic_controller(node: Node, props: dict) -> platdb.PlatDBNode:
     tctl = platdb.TrafficController.create_or_update(props)[0]
 
     return tctl
+
+
+def _merge_unknown(_: Node, props: dict) -> platdb.PlatDBNode:
+    unknown = platdb.Unknown.create_or_update(props)[0]
+
+    return unknown
 
 
 def connect_nodes(parent_node: Node, child_node: Node):
@@ -162,25 +178,25 @@ def connect_nodes(parent_node: Node, child_node: Node):
 def _connect_compute(parent: platdb.PlatDBNode, child: platdb.PlatDBNode):
     if isinstance(child, platdb.Compute):
         parent.downstream_computes.connect(child)
-        parent.upstream_computes.connect(child)
         return
 
     if isinstance(child, platdb.Resource):
         for parent_deployment in parent.deployment.all():
             parent_deployment.resources.connect(child)
-            child.upstreams.connect(parent_deployment)
         return
 
     if isinstance(child, platdb.Deployment):
         for parent_deployment in parent.deployment.all():
             parent_deployment.downstream_deployments.connect(child)
-            child.upstream_deployments.connect(parent_deployment)
         return
 
     if isinstance(child, platdb.TrafficController):
         for parent_deployment in parent.deployment.all():
             parent_deployment.downstream_traffic_ctrls.connect(child)
-            child.upstream_deployments.connect(parent_deployment)
+        return
+
+    if isinstance(child, platdb.Unknown):
+        parent.downstream_unknowns.connect(child)
         return
 
     raise Exception(  # pylint:disable=broad-exception-raised
@@ -191,7 +207,6 @@ def _connect_compute(parent: platdb.PlatDBNode, child: platdb.PlatDBNode):
 def _connect_deployment(parent: platdb.Deployment, child: platdb.PlatDBNode):
     if isinstance(child, platdb.Compute):
         parent.computes.connect(child)
-        child.deployment.replace(parent)
         return
 
     raise Exception(  # pylint:disable=broad-exception-raised
@@ -203,7 +218,6 @@ def _connect_deployment(parent: platdb.Deployment, child: platdb.PlatDBNode):
 def _connect_traffic_controller(parent: platdb.TrafficController, child: platdb.PlatDBNode):
     if isinstance(child, platdb.Deployment):
         parent.downstream_deployments.replace(child)
-        child.traffic_controller.replace(parent)
         return
 
     raise Exception(  # pylint:disable=broad-exception-raised
@@ -231,6 +245,8 @@ def get_connections(node: Node) -> Dict[str, Node]:
         return _get_deployment_connections(platdb_node)
     elif isinstance(platdb_node, platdb.Compute):
         return _get_compute_connections(platdb_node)
+    elif isinstance(platdb_node, platdb.Unknown):
+        return {}
     else:
         raise Exception(f"Unsupported node type for getting connections: {type(platdb_node).__name__}")
 
@@ -270,6 +286,9 @@ def _get_compute_connections(node: platdb.Compute) -> Dict[str, Node]:
     for downstream_compute in node.downstream_computes.all():
         connected_node = _neomodel_to_node(downstream_compute)
         _add_connection(connections, connected_node)
+    for downstream_unknowns in node.downstream_unknowns.all():
+        connected_node = _neomodel_to_node(downstream_unknowns)
+        _add_connection(connections, connected_node)
     for deployment in node.deployment.all():
         for resource in deployment.resources.all():
             d_connected_node = _neomodel_to_node(resource)
@@ -294,7 +313,8 @@ def _load_node_from_neo4j(node: Node) -> Optional[platdb.PlatDBNode]:
         NodeType.COMPUTE: platdb.Compute,
         NodeType.DEPLOYMENT: platdb.Deployment,
         NodeType.RESOURCE: platdb.Resource,
-        NodeType.TRAFFIC_CONTROLLER: platdb.TrafficController
+        NodeType.TRAFFIC_CONTROLLER: platdb.TrafficController,
+        NodeType.UNKNOWN: platdb.Unknown
     }
 
     cls = node_type_to_class[node.node_type]
@@ -311,7 +331,7 @@ def _load_node_from_neo4j(node: Node) -> Optional[platdb.PlatDBNode]:
 def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:
     """Query for unprofiled nodes, where the node has never been profiled, or the
        node has not been profiled **since** the passed in timestamp"""
-    node_class = [platdb.Compute, platdb.Deployment, platdb.Resource, platdb.TrafficController]
+    node_class = [platdb.Compute, platdb.Deployment, platdb.Resource, platdb.TrafficController, platdb.Unknown]
     results = {}
 
     for cls in node_class:
@@ -353,7 +373,8 @@ def get_node_by_address(address: str) -> Optional[Node]:
         "Compute": platdb.Compute,
         "Deployment": platdb.Deployment,
         "Resource": platdb.Resource,
-        "TrafficController": platdb.TrafficController
+        "TrafficController": platdb.TrafficController,
+        "Unknown": platdb.Unknown
     }
 
     obj = neomodel_classes[cls].inflate(neomodel_node)

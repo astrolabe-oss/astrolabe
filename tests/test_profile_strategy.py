@@ -4,7 +4,7 @@ import yaml
 
 import pytest
 
-from astrolabe import profile_strategy
+from astrolabe import node, profile_strategy
 
 
 # ProfileStrategy()
@@ -35,63 +35,91 @@ class TestProfileStrategy:
         """Child provider determined correctly for type: 'matchAll'"""
         # arrange
         provider = 'foo'
+        node_type = 'COMPUTE'
         child_provider = {
             'type': 'matchAll',
-            'provider': provider
+            'provider': (provider, node_type)
         }
         profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
         # act/assert
-        assert profile_strategy_fixture.determine_child_provider('dummy') == provider
+        provider_result, node_type_result = profile_strategy_fixture.determine_child_provider('dummy')
+        assert provider_result == provider
+        assert node_type_result == node.NodeType(node_type)
 
-    @pytest.mark.parametrize('port,provider', [('1234', 'abc'), (5678, 'efg')])
-    def test_determine_child_provider_case_match_port(self, profile_strategy_fixture, port, provider):
+    @pytest.mark.parametrize('port,provider,node_type', [('1234', 'abc', 'COMPUTE'), (5678, 'efg', 'RESOURCE')])
+    def test_determine_child_provider_case_match_port(self, profile_strategy_fixture, port, provider, node_type):
         """Child provider determined correctly per port for type: 'matchPort'"""
         # arrange
+        default_provider = 'def'
+        default_nt = 'UNKNOWN'
+
         child_provider = {
             'type': 'matchPort',
             'matches': {
-                int(port): provider
-            }
+                int(port): (provider, node_type)
+            },
+            'default': (default_provider, default_nt)
         }
         profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
-        # act/assert
-        assert profile_strategy_fixture.determine_child_provider(port) == provider
+        # act
+        provider_expect_match, nt_expect_match = profile_strategy_fixture.determine_child_provider(port)
+        provider_expect_miss, nt_expect_miss = profile_strategy_fixture.determine_child_provider('meow')
+
+        # assert
+        assert provider_expect_match == provider
+        assert nt_expect_match == node.NodeType(node_type)
+        assert provider_expect_miss == default_provider
+        assert nt_expect_miss == node.NodeType(default_nt)
 
     @pytest.mark.parametrize('address, provider', [('foo', 'bar'), ('1.2.3.4', 'baz'),
-                                                   ('asdf-a7h5f8cndfy-74hf6', 'buzz'), ('asdf', 'qux')])
+                                                   ('asdf-a7h5f8cndfy-74hf6', 'buzz')])
     def test_determine_child_provider_case_match_address(self, profile_strategy_fixture, address, provider):
         """Child provider determined correctly per address for type: 'matchAddress'"""
         # arrange
+        nt = 'COMPUTE'  # we aren't testing thoroughly for nodetype here since it is tested more elsewhere
+        default_provider = 'def'
+        default_nt = 'UNKNOWN'
         child_provider = {
             'type': 'matchAddress',
             'matches': {
-                '^foo$': 'bar',
-                '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$': 'baz',
-                '^.*[0-9a-z]{10}-[0-9a-z]{5}$': 'buzz',
-                '.*': 'qux'
-            }
+                '^foo$': ('bar', nt),
+                '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$': ('baz', nt),
+                '^.*[0-9a-z]{10}-[0-9a-z]{5}$': ('buzz', nt)
+            },
+            'default': (default_provider, default_nt)
         }
         profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
-        # act/assert
-        assert profile_strategy_fixture.determine_child_provider('dummy_mux', address) == provider
+        # act
+        provider_expect_match, nt_expect_match = profile_strategy_fixture.determine_child_provider('dummy_mux', address)
+        provider_expect_miss, nt_expect_miss = profile_strategy_fixture.determine_child_provider('meow', 'i_am_a_cat')
+
+        # assert
+        assert provider_expect_match == provider
+        assert nt_expect_match == node.NodeType(nt)
+        assert provider_expect_miss == default_provider
+        assert nt_expect_miss == node.NodeType(default_nt)
 
     def test_determine_child_provider_case_null_address(self, profile_strategy_fixture):
         """Child provider determined correctly for type: 'matchAddress' with address == None"""
         # arrange
         provider = 'foo'
+        node_type = 'RESOURCE'
         child_provider = {
             'type': 'matchAddress',
             'matches': {
-                '.*': provider
-            }
+                '.*': (provider, node_type)
+            },
+            'default': ('default_provider', 'UNKNOWN')
         }
         profile_strategy_fixture = replace(profile_strategy_fixture, child_provider=child_provider)
 
         # act/assert
-        assert profile_strategy_fixture.determine_child_provider('dummy_mux', None) == provider
+        provider_result, node_type_result = profile_strategy_fixture.determine_child_provider('dummy_mux', None)
+        assert provider_result == provider
+        assert node_type_result == node.NodeType(node_type)
 
 
 # init()

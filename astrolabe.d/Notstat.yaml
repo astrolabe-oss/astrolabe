@@ -99,7 +99,7 @@ providerArgs:
         # Process the data in one go
         echo "$ALL_CONNECTIONS" | 
             # get connections on ports we are interested in
-            awk '$2 ~ /:(3306|9042|9160|11211|5432|6379|80|443)$/ {print}' |
+            # awk '$2 ~ /:(3306|9042|9160|11211|5432|6379|80|443)$/ {print}' |
             # filter TCP responses - we only want originating requests
             awk '$1 !~ /:('"$LISTENING_PORTS"')$/ {print $2}' |
             # exclude if self is the dest
@@ -110,11 +110,8 @@ providerArgs:
 childProvider:
     type: "matchPort"
     matches:
-        5432: "aws"
-        6379: "aws"
-        80: "k8s"
-        443: "k8s"
-    default: "aws"
-rendererArgs:
-    promviz:
-
+        5432: ["aws", "RESOURCE"]
+        6379: ["aws", "RESOURCE"]
+        80: ["k8s", "COMPUTE"]
+        443: ["k8s", "COMPUTE"]
+    default: ["k8s", "UNKNOWN"]
