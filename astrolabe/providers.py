@@ -165,10 +165,11 @@ def parse_profile_strategy_response(response: str, host_address: str, pfs: Profi
     ]
     logs.logger.debug("Found %d profile results for %s, profile strategy: \"%s\"..",
                       len(node_transports), host_address, pfs.name)
-    return node_transports
+    return [n for n in node_transports if n is not None]
 
 
-def _create_node_transport_from_profile_strategy_response_line(header_line: str, data_line: str, pfs: ProfileStrategy):
+def _create_node_transport_from_profile_strategy_response_line(header_line: str, data_line: str, pfs: ProfileStrategy)\
+        -> Optional[NodeTransport]:
     field_map = {
         'mux': 'protocol_mux',
         'address': 'address',
@@ -176,8 +177,15 @@ def _create_node_transport_from_profile_strategy_response_line(header_line: str,
         'conns': 'num_connections',
         'metadata': 'metadata'
     }
+    header_cols = header_line.split()
+    data_cols = data_line.split()
+    if len(header_cols) != len(data_cols):
+        logs.logger.error("Profile strategy response: %d data columns expected for header [%s]. Data: [%s]",
+                          len(header_cols), header_line, data_line)
+        return None
+
     fields = {}
-    for label, value in zip(header_line.split(), data_line.split()):
+    for label, value in zip(header_cols, data_cols):
         if label == 'address' and value == 'null':
             continue
         fields[label] = value
@@ -185,7 +193,8 @@ def _create_node_transport_from_profile_strategy_response_line(header_line: str,
     # field transforms/requirements
     if 'mux' not in fields:
         logs.logger.error(fields)
-        raise CreateNodeTransportException("protocol_mux missing from profile strategy results")
+        raise CreateNodeTransportException(f"Protocol_mux missing from profile strategy results! "
+                                           f"Header: [{header_line}] Data: [{data_line}]")
     if 'metadata' in fields:
         fields['metadata'] = dict(tuple(i.split('=') for i in fields['metadata'].split(',')))
     if 'conns' in fields:
@@ -193,6 +202,7 @@ def _create_node_transport_from_profile_strategy_response_line(header_line: str,
 
     # provider
     from_hint = constants.PROVIDER_HINT in pfs.providers
-    provider = pfs.determine_child_provider(fields['mux'], fields.get('address'))
+    provider, node_type = pfs.determine_child_provider(fields['mux'], fields.get('address'))
     return NodeTransport(profile_strategy_name=pfs.name, provider=provider, from_hint=from_hint,
-                         protocol=pfs.protocol, **{field_map[k]: v for k, v in fields.items() if v})
+                         protocol=pfs.protocol, node_type=node_type,
+                         **{field_map[k]: v for k, v in fields.items() if v})

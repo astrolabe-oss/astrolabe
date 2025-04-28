@@ -23,6 +23,7 @@ class NodeType(Enum):
     RESOURCE = 'RESOURCE'
     DEPLOYMENT = 'DEPLOYMENT'
     TRAFFIC_CONTROLLER = 'TRAFFIC_CONTROLLER'
+    UNKNOWN = 'UNKNOWN'
     __type__: str = 'NodeType'  # for json serialization/deserialization
 
 
@@ -37,7 +38,7 @@ class NodeTransport:
         protocol: the protocol of the NodeTransport
         protocol_mux: the protocol multiplexer (port for TCP, nsq topic:channel for NSQ).
         address: the node address.  e.g. "IP address" or k8s pod name
-        from_hint: wether the node transport is from a Hint
+        from_hint: whether the node transport is from a Hint
         debug_identifier: like the "name" of the service - but it is not the official name and only used for debug/logs
         num_connections: optional num_connections.  if 0, node will be marked as "DEFUNCT"
         metadata: optional key-value pairs of metadata.  not used by core but useful to custom plugins
@@ -67,6 +68,7 @@ class Node:
     protocol_mux: str = None
     containerized: bool = False
     from_hint: bool = False
+    public_ip: bool = False
     address: str = None
     ipaddrs: Optional[List[str]] = None
     node_name: str = None

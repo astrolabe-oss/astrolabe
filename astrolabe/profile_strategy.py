@@ -16,7 +16,7 @@ from typing import List, Optional
 import yaml
 from yaml import safe_load_all
 
-from astrolabe import config, constants, logs, network
+from astrolabe import config, constants, logs, network, node
 
 
 class ProfileStrategyException(Exception):
@@ -53,7 +53,7 @@ class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
 
         return False
 
-    def determine_child_provider(self, protocol_mux: str, address: str = None) -> Optional[str]:
+    def determine_child_provider(self, protocol_mux: str, address: str = None) -> (Optional[str], node.NodeType):
         """
         Determine the provider for the protocol_mux of a node discovered using this profile strategy
 
@@ -61,25 +61,31 @@ class ProfileStrategy:  # pylint:disable=too-many-instance-attributes
         :param address: address of the node
         :return: a string representation of the provider
         """
-        if 'matchAll' == self.child_provider['type']:
-            return self.child_provider['provider']
 
-        if 'matchAddress' == self.child_provider['type']:
-            for match, provider in self.child_provider['matches'].items():
+        # Determine provider and node type based on configuration
+        child_provider_type = self.child_provider['type']
+
+        if child_provider_type == 'matchAll':
+            provider, node_type = self.child_provider['provider']
+        elif child_provider_type == 'matchAddress':
+            for match, provider_info in self.child_provider['matches'].items():
                 if re.search(match, address or ''):
-                    return provider
-            return self.child_provider['default']
-
-        if 'matchPort' == self.child_provider['type']:
+                    provider, node_type = provider_info
+                    break
+            else:
+                provider, node_type = self.child_provider['default']
+        elif child_provider_type == 'matchPort':
             try:
-                if int(protocol_mux) in self.child_provider['matches']:
-                    return self.child_provider['matches'][int(protocol_mux)]
-                return self.child_provider['default']
+                port = int(protocol_mux)
+                provider_info = self.child_provider['matches'].get(port)
+                provider, node_type = provider_info if provider_info else self.child_provider['default']
             except (ValueError, IndexError):
-                return self.child_provider['default']
+                provider, node_type = self.child_provider['default']
+        else:
+            logs.logger.fatal("child provider match type: %s not supported", child_provider_type)
+            raise ProfileStrategyException()
 
-        logs.logger.fatal("child provider match type: %s not supported", self.child_provider['type'])
-        raise ProfileStrategyException()
+        return provider, node.NodeType(node_type)
 
 
 profile_strategies: typing.List[ProfileStrategy] = []
@@ -97,7 +103,11 @@ def init():
 def _safe_dump(obj):
     """Safely dump object to YAML, handling problematic types."""
     try:
-        return yaml.dump(asdict(obj), default_flow_style=False, sort_keys=False)
+        if not isinstance(obj, ProfileStrategy):
+            return yaml.dump(asdict(obj), default_flow_style=False, sort_keys=False)
+        pfs_dict = asdict(obj)
+        pfs_dict.pop('provider_args', None)  # Remove provider_args from dict
+        return yaml.dump(pfs_dict, default_flow_style=False, sort_keys=False)
     except ValueError:
         return str(obj)
 

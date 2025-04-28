@@ -56,12 +56,12 @@ def protocol_mock(mocker, dummy_protocol_ref) -> MagicMock:
 
 @pytest.fixture
 def profile_strategy_fixture() -> ProfileStrategy:
-    return ProfileStrategy('', '', None, '', {'shell_command': 'foo'}, {}, {}, {})
+    return ProfileStrategy('', '', None, '', {'shell_command': 'foo'}, {}, {})
 
 
 @pytest.fixture
 def ps_mock(protocol_fixture, mocker, mock_provider_ref) -> MagicMock:
-    """it is a required fixture to include, whether or not it is used explicitly, in or to mock profile"""
+    """it is a required fixture to include, whether or not it is used explicitly, in order to mock profile"""
     ps_mock = mocker.patch('astrolabe.profile_strategy.ProfileStrategy', autospec=True)
     mocker.patch('astrolabe.profile_strategy.profile_strategies', [ps_mock])
     ps_mock.name = 'FAKE'
@@ -69,6 +69,7 @@ def ps_mock(protocol_fixture, mocker, mock_provider_ref) -> MagicMock:
     ps_mock.protocol = protocol_fixture
     ps_mock.provider_args = {}
     ps_mock.providers = [mock_provider_ref]
+    ps_mock.determine_child_provider.return_value = ('fak', 'FAKE')
 
     return ps_mock
 

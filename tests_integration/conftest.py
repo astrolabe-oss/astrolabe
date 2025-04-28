@@ -14,7 +14,7 @@ from astrolabe.platdb import (Neo4jConnection,
 
 @pytest.fixture(scope="module")
 def neo4j_connection():
-    uri = "bolt://localhost:7687"
+    uri = "bolt://localhost:17687"
     username = "neo4j"
     password = "guruai11"
     driver = Neo4jConnection(uri=uri, auth=(username, password))
@@ -55,11 +55,7 @@ def mock_complex_graph(neo4j_connection):
 
     # Connections
     deployment1.computes.connect(compute1)
-    compute1.deployment.connect(deployment1)
     deployment1.application.connect(app1)
-    app1.deployments.connect(deployment1)
 
     deployment2.computes.connect(compute2)
-    compute2.deployment.connect(deployment2)
     deployment2.application.connect(app2)
-    app2.deployments.connect(deployment2)

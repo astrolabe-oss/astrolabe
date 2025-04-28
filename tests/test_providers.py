@@ -1,6 +1,7 @@
 import pytest
 
 from astrolabe import providers, node, constants
+from astrolabe.node import NodeType
 
 
 @pytest.fixture(autouse=True)
@@ -118,8 +119,8 @@ def test_parse_profile_strategy_response_case_mux_only(ps_mock):
     protocol_mux = 'foo'
     profile_strategy_response = f"mux\n{protocol_mux}"
     provider = 'FAKE'
-    ps_mock.determine_child_provider.return_value = provider
-    expected = [node.NodeTransport(ps_mock.name, provider, ps_mock.protocol, protocol_mux)]
+    ps_mock.determine_child_provider.return_value = (provider, NodeType.UNKNOWN)
+    expected = [node.NodeTransport(ps_mock.name, provider, ps_mock.protocol, protocol_mux, node_type=NodeType.UNKNOWN)]
 
     # act/assert
     res = providers.parse_profile_strategy_response(profile_strategy_response, '', ps_mock)
@@ -133,9 +134,9 @@ def test_parse_profile_strategy_response_case_all_fields(ps_mock):
     profile_strategy_response = f"mux address id conns metadata\n" \
                                 f"{mux} {address} {_id} {conns} {metadata}"
     provider = 'FAKE'
-    ps_mock.determine_child_provider.return_value = provider
+    ps_mock.determine_child_provider.return_value = (provider, NodeType.UNKNOWN)
     expected = [node.NodeTransport(ps_mock.name, provider, ps_mock.protocol, mux, address,
-                                   False, _id, int(conns), {metadata_1_key: metadata_1_val})]
+                                   False, _id, int(conns), {metadata_1_key: metadata_1_val}, NodeType.UNKNOWN)]
 
     # act/assert
     res = providers.parse_profile_strategy_response(profile_strategy_response, '', ps_mock)

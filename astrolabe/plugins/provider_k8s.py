@@ -164,7 +164,8 @@ class ProviderKubernetes(ProviderInterface):
                     protocol_mux=service.spec.ports[0].target_port,
                     profile_strategy_name='_profile_k8s_service',
                     provider='k8s',
-                    from_hint=False
+                    from_hint=False,
+                    node_type=NodeType(NodeType.COMPUTE)
                 )
                 node_transports.append(node_transport)
                 logs.logger.debug("Found %d profile results for %s, profile strategy: \"%s\"..",

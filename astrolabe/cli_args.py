@@ -64,14 +64,14 @@ def parse_args(registered_exporter_refs: List[str]) -> (configargparse.Namespace
         sub_p.add_argument('--debug', action='store_true', help='Log debug output to stderr')
         sub_p.add_argument('-c', '--config-file', is_config_file=True, metavar='FILE',
                            help='Specify a config file path')
+        sub_p.add_argument('-S', '--seeds-only', action='store_true',
+                           help="Only profile seeds (and not inventoried nodes)")
 
     # discover command args
     discover_p.add_argument('-s', '--seeds', nargs="+", required=True, metavar='SEED',
                             help='Seed host(s) to begin discovering viz. an IP address or hostname.  '
                                  'Must be in the format: "provider:address".  '
                                  'e.g. "ssh:10.0.0.42" or "k8s:widget-machine-5b5bc8f67f-2qmkp')
-    discover_p.add_argument('-S', '--seeds-only', action='store_true',
-                            help="Only profile seeds (and not inventoried nodes)")
     discover_p.add_argument('-I', '--skip-inventory', action='store_true',
                             help="Skip running the inventory process entirely")
     discover_p.add_argument('-i', '--inventory-only', action='store_true',

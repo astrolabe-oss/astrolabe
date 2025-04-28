@@ -17,6 +17,7 @@ import neo4j
 from neo4j import GraphDatabase
 from neomodel import (    # pylint: disable=unused-import
     ArrayProperty,
+    BooleanProperty,
     DoesNotExist,
     DateTimeProperty,
     JSONProperty,
@@ -124,6 +125,7 @@ class PlatDBNode(StructuredNode):
     # Attributes that are being added to maintain the Node obj in Astrolabe
     profile_strategy_name = StringProperty()
     provider = StringProperty()
+    app_name = StringProperty()
 
     # New fields to mirror `warnings` and `errors` in Astrolabe Node class
     profile_warnings = JSONProperty(default={})
@@ -194,10 +196,10 @@ class PlatDBNetworkNode(PlatDBNode):
     __abstract_node__ = True
     """Base class for nodes with network properties."""
     name = StringProperty()
-    app_name = StringProperty()
     address = StringProperty(required=True)
     protocol = StringProperty()
     protocol_multiplexor = StringProperty()
+    public_ip = BooleanProperty()
 
 
 class Deployment(PlatDBNetworkNode):
@@ -207,13 +209,13 @@ class Deployment(PlatDBNetworkNode):
         "k8s_deployment": "K8s Deployment"})
 
     # Relationships
-    application = RelationshipTo('Application', 'IMPLEMENTS', cardinality=ZeroOrOne)
+    application = RelationshipFrom('Application', 'IMPLEMENTED_BY', cardinality=ZeroOrOne)
     computes = RelationshipTo('Compute', 'HAS_MEMBER', cardinality=ZeroOrMore)
-    traffic_controller = RelationshipTo('TrafficController', 'FORWARDED_FROM',
-                                        cardinality=ZeroOrOne)
+    traffic_controller = RelationshipFrom('TrafficController', 'FORWARDS_TO',
+                                          cardinality=ZeroOrOne)
     downstream_traffic_ctrls = RelationshipTo('TrafficController', 'CALLS', cardinality=ZeroOrMore)
     downstream_deployments = RelationshipTo('Deployment', 'CALLS', cardinality=ZeroOrMore)
-    upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
+    upstream_deployments = RelationshipFrom('Deployment', 'CALLS', cardinality=ZeroOrMore)
     resources = RelationshipTo('Resource', 'CALLS', cardinality=ZeroOrMore)
 
 
@@ -221,10 +223,15 @@ class Compute(PlatDBNetworkNode):
     platform = StringProperty()
 
     # Relationships
-    deployment = RelationshipTo('Deployment', 'MEMBER_OF', cardinality=ZeroOrOne)
+    deployment = RelationshipFrom('Deployment', 'HAS_MEMBER', cardinality=ZeroOrMore)
 
     # I Think we need to get rid of or refactor this, and corresponding database.py usages
     downstream_computes = RelationshipTo('Compute', 'CALLS', cardinality=ZeroOrMore)
+    upstream_computes = RelationshipFrom('Compute', 'CALLS', cardinality=ZeroOrMore)
+    downstream_unknowns = RelationshipTo('Unknown', 'CALLS', cardinality=ZeroOrMore)
+
+
+class Unknown(PlatDBNetworkNode):
     upstream_computes = RelationshipFrom('Compute', 'CALLED_BY', cardinality=ZeroOrMore)
 
 
@@ -237,9 +244,9 @@ class PlatDBDNSNode(PlatDBNetworkNode):
     # pylint:disable=arguments-differ
     @classmethod
     def create_or_update(cls, data):  # NOQA
-        """For Ressouce types, sometimes we have the address and not the dns names, sometimes we have the dns_names and
-             not the address.  However, address:dns_names is a natural unique key.  So we cannot specity unique and null
-             in neomodel - so as you see here we create that constraint programitcally in the application layer"""
+        """For PlatDBDNSNode, sometimes we have the address and not the dns names, sometimes we have the dns_names and
+             not the address.  However, address:dns_names is a natural unique key.  So we cannot specify unique and null
+             in neomodel - so as you see here we create that constraint programmatically in the application layer"""
         # MUST HAVE ADDRESS OR DNS_NAMES
         address = data.get('address', None)
         dns_names = data.get('dns_names', [])
@@ -283,9 +290,9 @@ class PlatDBDNSNode(PlatDBNetworkNode):
 class TrafficController(PlatDBDNSNode):
     # Relationships
     downstream_deployments = RelationshipTo('Deployment', 'FORWARDS_TO', cardinality=ZeroOrOne)
-    upstream_deployments = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
+    upstream_deployments = RelationshipFrom('Deployment', 'CALLS', cardinality=ZeroOrMore)
 
 
 class Resource(PlatDBDNSNode):
     # Relationships
-    upstreams = RelationshipTo('Deployment', 'CALLED_BY', cardinality=ZeroOrMore)
+    upstreams = RelationshipFrom('Deployment', 'CALLS', cardinality=ZeroOrMore)

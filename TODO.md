@@ -20,6 +20,7 @@
 
 ### FEATURES/IMPROVEMENTS
 * [x] FEATURE - export mermaid (NOV 2024)
+* [ ] k8s - add k8s_cluster as a node_attribute
 * [ ] Seed auto discovery based on inventory 
 * [ ] `database.py`: neo4j vars should be looked up in ENV vars as well.  (Can we do this by convention for all args?)
 * [ ] `discover.py`: is it idempotent right now?
@@ -31,8 +32,12 @@
 * [ ] `node.py`: move discover.create_node() -> node.create_node()
 * [ ] `database.py`: need tests for logic/transforms, etc
 
-### BIG RELEASES
+### BIG ONE: TEMPORALNESS
 * [ ] `temporalness` - introduce the concept of time/when to solve for changing infra
+
+### BIG ONE: DEFENSIVENESS
+* [ ] `defensiveness` - mux not expected from profile results
+* [ ] `definsiveness` - how do we handle ALL exceptions in discovery/profiling?  Throw non-exiting exception & log?
 
 ### Documentation:
 * [ ] Profile Strategies - examples
