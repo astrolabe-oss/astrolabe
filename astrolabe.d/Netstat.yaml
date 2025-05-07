@@ -13,8 +13,11 @@ providerArgs:
         # determine listening ports on this instance
         listening_ports=$(netstat -lnt | awk '{print $4}' | awk -F: '{print $NF}' | grep '[0-9]' | sort | uniq | tr '\n' '|')
 
-        # get connections on ports we are interested in
-        netstat -ant | # awk '$5 ~ /:(3306|9042|9160|11211|5432|6379|80|443)$/ {print}' |
+        # get connections
+        netstat -ant | 
+
+        # only on ports we are interested in
+        # awk '$5 ~ /:(3306|9042|9160|11211|5432|6379|80|443)$/ {print}' |
 
         # filter TCP responses - we only want originating requests this filters out HTTP server response to
         # clients on ephemeral ports which happen to be in our list of ports of interest

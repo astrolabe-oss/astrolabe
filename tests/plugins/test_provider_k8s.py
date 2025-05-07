@@ -102,7 +102,7 @@ async def test_profile_k8s_service_respects_default_excluded_namespaces(
 @pytest.fixture
 def mock_pfs_response(mocker, k8s_provider):
     # Mock exec response to return a result
-    mocker.patch('astrolabe.plugins.provider_k8s.parse_profile_strategy_response', return_value=["mocked-result"])
+    mocker.patch('astrolabe.plugins.provider_k8s.parse_profile_strategy_response', return_value=[mocker.MagicMock()])
     k8s_provider.ws_api = mocker.Mock()
     k8s_provider.ws_api.connect_get_namespaced_pod_exec = mocker.AsyncMock(return_value="test response")
 

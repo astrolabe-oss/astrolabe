@@ -15,6 +15,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import asyncio
 import sys
+import re
 from typing import Dict, List, Optional, Union
 
 from kubernetes_asyncio import client, config
@@ -25,7 +26,7 @@ from termcolor import colored
 
 from astrolabe import database, constants, logs
 from astrolabe.network import Hint, get_protocol, PROTOCOL_TCP
-from astrolabe.node import NodeTransport, NodeType, Node
+from astrolabe.node import NodeTransport, NodeType, Node, create_node
 from astrolabe.profile_strategy import ProfileStrategy, INVENTORY_PROFILE_STRATEGY_NAME, HINT_PROFILE_STRATEGY_NAME
 from astrolabe.providers import ProviderInterface, parse_profile_strategy_response
 from astrolabe.plugin_core import PluginArgParser
@@ -37,11 +38,32 @@ class ProviderKubernetes(ProviderInterface):
     def __init__(self):
         self.api: client.CoreV1Api
         self.ws_api: client.CoreV1Api
+        self.cluster_name: Optional[str] = None
 
     async def init_async(self):
         await config.load_kube_config()
         self.api = client.CoreV1Api()
         self.ws_api = client.CoreV1Api(WsApiClient(configuration=client.configuration.Configuration.get_default()))
+        self.cluster_name = self._get_cluster_name()
+
+    def _get_cluster_name(self) -> Optional[str]:
+        """
+        Get the cluster name from the current Kubernetes context.
+        If the cluster name is formatted like an AWS ARN, extract everything after the last "/".
+
+        :return: The cluster name or None if it can't be determined
+        """
+        _, active_context = config.list_kube_config_contexts()
+        if active_context and 'name' in active_context:
+            cluster_name = active_context['name']
+            # Check if it's an AWS ARN format
+            if cluster_name.startswith('arn:aws:eks:'):
+                # Extract everything after the last "/"
+                match = re.search(r'/([^/]+)$', cluster_name)
+                if match:
+                    return match.group(1)
+            return cluster_name
+        return None
 
     async def inventory(self):
         await self._inventory_services()
@@ -68,6 +90,9 @@ class ProviderKubernetes(ProviderInterface):
     @staticmethod
     def is_container_platform() -> bool:
         return True
+
+    def cluster(self) -> Optional[str]:
+        return self.cluster_name
 
     async def lookup_name(self, address: str, _: Optional[type]) -> Optional[str]:
         # k8s pod service name
@@ -195,8 +220,8 @@ class ProviderKubernetes(ProviderInterface):
                                                                         container=container.name, command=exec_command,
                                                                         stderr=True, stdin=False, stdout=True,
                                                                         tty=False)
-                node_transport = parse_profile_strategy_response(ret, address, pfs)
-                node_transports.extend(node_transport)
+                profiled_nts = parse_profile_strategy_response(ret, address, pfs)
+                node_transports.extend(profiled_nts)
         return node_transports
 
     async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
@@ -262,8 +287,9 @@ class ProviderKubernetes(ProviderInterface):
                 if svc.spec.selector and constants.ARGS.k8s_app_name_label in svc.spec.selector:
                     k8s_service_app_name = svc.spec.selector[constants.ARGS.k8s_app_name_label]
                 else:
-                    raise ValueError(f"k8s service {k8s_service_address} does not have configured k8s service name "
-                                     f"selector: {constants.ARGS.k8s_app_name_label}")
+                    logs.logger.error("k8s service %s does not have configured k8s service name "
+                                      "selector: %s", k8s_service_address, constants.ARGS.k8s_app_name_label)
+                    k8s_service_app_name = None
                 k8s_service_node = Node(
                     address=k8s_service_address,
                     node_name=k8s_service_name,
@@ -272,7 +298,9 @@ class ProviderKubernetes(ProviderInterface):
                     protocol=PROTOCOL_TCP,
                     protocol_mux=ports.node_port,
                     provider='k8s',
-                    service_name=k8s_service_app_name
+                    service_name=k8s_service_app_name,
+                    cluster=self.cluster_name,
+                    containerized=True
                 )
                 lb_node = Node(
                     node_type=NodeType.TRAFFIC_CONTROLLER,
@@ -282,13 +310,23 @@ class ProviderKubernetes(ProviderInterface):
                     protocol=PROTOCOL_TCP,
                     protocol_mux=ports.port,
                     service_name=k8s_service_app_name,
-                    aliases=[lb_address]
+                    aliases=[lb_address],
+                    cluster=self.cluster_name,
+                    containerized=True
                 )
                 database.save_node(k8s_service_node)
                 database.save_node(lb_node)
                 database.connect_nodes(lb_node, k8s_service_node)
                 logs.logger.info("Inventoried 1 k8s service node: %s", k8s_service_node.debug_id())
                 logs.logger.info("Inventoried 1 k8s load balancer node: %s", lb_node.debug_id())
+                logs.logger.info("Profiling k8s load balancer node: %s", lb_node.debug_id())
+                pod_nts = await self._profile_k8s_service(k8s_service_name)
+                for pod_nt in pod_nts:
+                    _, pod_node = create_node(pod_nt, self)
+                    pod_node.set_profile_timestamp()
+                    database.save_node(pod_node)
+                    database.connect_nodes(k8s_service_node, pod_node)
+                    logs.logger.info("Inventoried pods: %s for service: %s", pod_node.node_name, lb_node.debug_id())
 
 
 def _parse_label_selector(service_name: str) -> str:

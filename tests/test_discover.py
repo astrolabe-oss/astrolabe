@@ -356,17 +356,17 @@ async def test_discover_case_cycle(tree, provider_mock, utcnow):
     # Invalid IP
     ("not-an-ip", False, "invalid IP format"),
 ])
-def test_create_node_ip_address_classification(mocker, ip_addr, expected_public, desc):
+def test_create_node_ip_address_classification(mocker, ip_addr, expected_public, desc, provider_mock):
     """Tests the IP address classification logic through the create_node method"""
     # arrange
     mocker.patch('astrolabe.discover.providers.get_provider_by_ref')
     nt = mocker.MagicMock(address=ip_addr)
 
     # act
-    _, node = discover.create_node(nt)
+    _, n = node.create_node(nt, provider_mock)
 
     # assert
-    assert node.public_ip == expected_public, f"public_ip flag wrong for {desc}: {ip_addr}"
+    assert n.public_ip == expected_public, f"public_ip flag wrong for {desc}: {ip_addr}"
 
 
 # def test_create_node_with_disabled_provider(mocker):

@@ -126,6 +126,7 @@ class PlatDBNode(StructuredNode):
     profile_strategy_name = StringProperty()
     provider = StringProperty()
     app_name = StringProperty()
+    cluster = StringProperty()
 
     # New fields to mirror `warnings` and `errors` in Astrolabe Node class
     profile_warnings = JSONProperty(default={})

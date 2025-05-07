@@ -53,7 +53,8 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         errors=platdb_node.profile_errors,
         _profile_timestamp=platdb_node.profile_timestamp,
         _profile_lock_time=platdb_node.profile_lock_time,
-        node_type=class_to_node[platdb_node.__class__]
+        node_type=class_to_node[platdb_node.__class__],
+        cluster=platdb_node.cluster
     )
 
     if hasattr(platdb_node, 'ipaddrs'):
@@ -86,7 +87,8 @@ def save_node(node: Node) -> Node:
         'provider': node.provider,
         'public_ip': node.public_ip,
         'profile_warnings': node.warnings,
-        'profile_errors': node.errors
+        'profile_errors': node.errors,
+        'cluster': node.cluster
     }
 
     # NOTE Node.node_type defaults to COMPUTE

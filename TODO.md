@@ -1,9 +1,12 @@
+### CURRENT
+* [ ] include ipaddress array field in the platdb database
+
 ### OSS RELEASE FOLLOW UPS
-  * [x] rename astrolabe-oss/corelib repo to platdb?
-  * [x] pynapple repo filter and port over to example repo
-  * [x] example app - terraform repo
-  * [ ] demo video for README
-  * [ ] credit image: https://commons.wikimedia.org/wiki/File:Astrolabe.png
+* [x] rename astrolabe-oss/corelib repo to platdb?
+* [x] pynapple repo filter and port over to example repo
+* [x] example app - terraform repo
+* [ ] demo video for README
+* [ ] credit image: https://commons.wikimedia.org/wiki/File:Astrolabe.png
 
 ### BUGS
 * [x] `cli_args.py`: configargparse doesn't let parse lists in config file! (NOV 2024)

@@ -15,7 +15,6 @@ from typing import List, Optional
 import configargparse
 
 from astrolabe import constants, logs
-from astrolabe.network import Hint
 from astrolabe.node import Node, NodeTransport
 from astrolabe.plugin_core import PluginInterface, PluginFamilyRegistry
 from astrolabe.profile_strategy import ProfileStrategy
@@ -38,6 +37,14 @@ class ProviderInterface(PluginInterface):
         :return:
         """
         return False
+
+    def cluster(self) -> Optional[str]:
+        """
+        Returns the data center cluster associated with the provider, if any
+
+        :return: Optional[str]: The cluster name as a string if associated, otherwise None.
+        """
+        return None
 
     async def inventory(self) -> None:
         """
@@ -88,7 +95,7 @@ class ProviderInterface(PluginInterface):
         del address, connection
         return None
 
-    async def take_a_hint(self, hint: Hint) -> List[NodeTransport]:
+    async def take_a_hint(self, hint: 'network.Hint') -> List[NodeTransport]:    # noqa: F821  # Avoid circular import
         """
         Takes a hint, looks up an instance of service in the provider, and returns a NodeTransport representing the
         Node discovered in the Provider. Default response when subclassing will be a no-op, which allows provider

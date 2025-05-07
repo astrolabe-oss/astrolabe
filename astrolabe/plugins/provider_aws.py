@@ -219,6 +219,7 @@ class ProviderAWS(ProviderInterface):
                         protocol_mux=lb_port,
                         aliases=[lb_address]
                     )
+                    lb_node.set_profile_timestamp()
                     if lb_app_tag:
                         lb_node.service_name = lb_app_tag
                     database.save_node(lb_node)
@@ -258,6 +259,7 @@ class ProviderAWS(ProviderInterface):
                                     provider='aws',
                                     service_name=lb_app_tag
                                 )
+                                asg_node.set_profile_timestamp()
                                 asg_nodes[f"ASG_{asg_name}"] = asg_node
                                 database.save_node(asg_node)
                                 database.connect_nodes(lb_node, asg_node)
@@ -281,6 +283,7 @@ class ProviderAWS(ProviderInterface):
                                 protocol_mux=tg_port,
                                 provider='ssh'
                             )
+                            ec2_node.set_profile_timestamp()
                             database.save_node(ec2_node)
                             database.connect_nodes(asg_node, ec2_node)
                             logs.logger.info("Inventoried 1 AWS EC2 node: %s", ec2_node.debug_id())
