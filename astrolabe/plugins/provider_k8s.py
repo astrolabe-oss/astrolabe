@@ -38,13 +38,26 @@ class ProviderKubernetes(ProviderInterface):
     def __init__(self):
         self.api: client.CoreV1Api
         self.ws_api: client.CoreV1Api
-        self.cluster_name: Optional[str] = None
+        self._cluster_name: Optional[str] = None
 
     async def init_async(self):
         await config.load_kube_config()
         self.api = client.CoreV1Api()
         self.ws_api = client.CoreV1Api(WsApiClient(configuration=client.configuration.Configuration.get_default()))
-        self.cluster_name = self._get_cluster_name()
+        self._cluster_name = self._get_cluster_name()
+
+        # Fetch all pods during initialization to avoid repeated API calls
+        try:
+            all_pods = await self.api.list_pod_for_all_namespaces()
+            filtered_pods = _filter_excluded_namespaces(all_pods)
+
+            # Cache pods by name for quick lookup
+            for pod in filtered_pods:
+                pod_cache[pod.metadata.name] = pod
+
+            logs.logger.debug("Cached %d pods during initialization", len(pod_cache))
+        except ApiException as exc:
+            logs.logger.error("Failed to fetch pods during initialization: %s", exc)
 
     def _get_cluster_name(self) -> Optional[str]:
         """
@@ -92,7 +105,44 @@ class ProviderKubernetes(ProviderInterface):
         return True
 
     def cluster(self) -> Optional[str]:
-        return self.cluster_name
+        return self._cluster_name
+
+    async def qualify_node(self, node: Node) -> bool:  # pylint:disable=too-many-return-statements  # noqa: MC0001
+        if node.node_type in [NodeType.DEPLOYMENT, NodeType.TRAFFIC_CONTROLLER]:
+            return node.cluster and self._cluster_name and node.cluster == self._cluster_name
+
+        if node.node_type != NodeType.COMPUTE:
+            logs.logger.debug("Node type %s not supported for provider!", node.node_type)
+            return False
+
+        # COMPUTE from here
+        if not self._cluster_name:
+            # something is wrong, abort
+            logs.logger.error("kubernetes provider cluster not configured!")
+            return False
+
+        if node.cluster and node.cluster == self._cluster_name:
+            return True
+
+        if node.cluster and node.cluster != self._cluster_name:
+            logs.logger.debug("Node %s not in this cluster %s", node.address, self._cluster_name)
+            return False
+
+        # COMPUTE, `.cluster` not set
+        if node.address and node.address in pod_cache:
+            # pod name is in this cluster
+            return True
+
+        if node.ipaddrs:
+            # pod ip address in this cluster
+            for _, pod in pod_cache.items():
+                if hasattr(pod.status, 'pod_ip') and pod.status.pod_ip:
+                    if pod.status.pod_ip in node.ipaddrs:
+                        return True
+
+        logs.logger.debug("Node %s not found in cluster by either name or ipaddress for cluster %s",
+                          node.address, self._cluster_name)
+        return False
 
     async def lookup_name(self, address: str, _: Optional[type]) -> Optional[str]:
         # k8s pod service name
@@ -168,6 +218,7 @@ class ProviderKubernetes(ProviderInterface):
             services = await self.api.list_service_for_all_namespaces(field_selector=f"metadata.name={svc_name}")
             services = _filter_excluded_namespaces(services)
             if 0 == len(services):
+                logs.logger.debug("Service %s not found!", svc_name)
                 return []
 
             # We are assuming that there is only one service in any namespace and just taking the first one here
@@ -175,6 +226,7 @@ class ProviderKubernetes(ProviderInterface):
             selector = service.spec.selector
             namespace = service.metadata.namespace
             if not selector:
+                logs.logger.debug("Selector not found for service %s!", svc_name)
                 return []
 
             label_selector = ",".join([f"{key}={value}" for key, value in selector.items()])
@@ -195,6 +247,9 @@ class ProviderKubernetes(ProviderInterface):
                 node_transports.append(node_transport)
                 logs.logger.debug("Found %d profile results for %s, profile strategy: \"%s\"..",
                                   len(node_transports), svc_name, '_profile_k8s_service')
+            if len(node_transports) < 1:
+                logs.logger.debug("No pods found for service %s, ns: %s, selector: %s!",
+                                  svc_name, namespace, label_selector)
             return node_transports
 
         except ApiException as exc:
@@ -266,6 +321,8 @@ class ProviderKubernetes(ProviderInterface):
                 return None
 
             pod = filtered_pods[0]
+            # Add the pod to the cache for future lookups
+            pod_cache[pod_name] = pod
         except ApiException as exc:
             logs.logger.debug("Cannot find pod %s w/ ApiException(%s:%s)", pod_name, exc.status, exc.reason)
             return None
@@ -299,7 +356,7 @@ class ProviderKubernetes(ProviderInterface):
                     protocol_mux=ports.node_port,
                     provider='k8s',
                     service_name=k8s_service_app_name,
-                    cluster=self.cluster_name,
+                    cluster=self._cluster_name,
                     containerized=True
                 )
                 lb_node = Node(
@@ -311,7 +368,7 @@ class ProviderKubernetes(ProviderInterface):
                     protocol_mux=ports.port,
                     service_name=k8s_service_app_name,
                     aliases=[lb_address],
-                    cluster=self.cluster_name,
+                    cluster=self._cluster_name,
                     containerized=True
                 )
                 database.save_node(k8s_service_node)
@@ -322,8 +379,11 @@ class ProviderKubernetes(ProviderInterface):
                 logs.logger.info("Profiling k8s load balancer node: %s", lb_node.debug_id())
                 pod_nts = await self._profile_k8s_service(k8s_service_name)
                 for pod_nt in pod_nts:
-                    _, pod_node = create_node(pod_nt, self)
-                    pod_node.set_profile_timestamp()
+                    _, pod_node = await create_node(pod_nt, self, self._cluster_name)
+                    # DO NOT set the profile timestamp here, otherwise the item will not get queued up
+                    #  for name discovery, etc, next time discovery/profile is run
+                    pod_node.service_name = k8s_service_app_name
+                    pod_node.cluster = self._cluster_name
                     database.save_node(pod_node)
                     database.connect_nodes(k8s_service_node, pod_node)
                     logs.logger.info("Inventoried pods: %s for service: %s", pod_node.node_name, lb_node.debug_id())

@@ -118,6 +118,29 @@ async def test_discover_case_sets_profile_complete(tree, provider_mock, exc, utc
     assert node1.profile_complete(utcnow)
 
 
+@pytest.mark.asyncio
+async def test_discover_success_path(tree, provider_mock, ps_mock):
+    """Crawling a single node tree - connection is opened and passed to both lookup_name and profile"""
+    # arrange
+    # mock provider
+    stub_connection = 'foo_connection'
+    provider_mock.open_connection.return_value = stub_connection
+    provider_mock.lookup_name.return_value = 'bar_name'
+    # mock profile strategy
+    stub_provider_args = {'baz': 'buz'}
+    ps_mock.provider_args = stub_provider_args
+
+    # act
+    await discover.discover(tree, [])
+
+    # assert
+    provider_mock.qualify_node.assert_called_once_with(list(tree.values())[0])
+    provider_mock.open_connection.assert_called_once_with(list(tree.values())[0].address)
+    provider_mock.sidecar.assert_called_once_with(list(tree.values())[0].address, stub_connection)
+    provider_mock.lookup_name.assert_called_once_with(list(tree.values())[0].address, stub_connection)
+    provider_mock.profile.assert_called_once_with(list(tree.values())[0], [ps_mock], stub_connection)
+
+
 # Calls to ProviderInterface::open_connection
 @pytest.mark.asyncio
 async def test_discover_case_connection_opened_and_passed(tree, provider_mock, ps_mock):
@@ -356,14 +379,15 @@ async def test_discover_case_cycle(tree, provider_mock, utcnow):
     # Invalid IP
     ("not-an-ip", False, "invalid IP format"),
 ])
-def test_create_node_ip_address_classification(mocker, ip_addr, expected_public, desc, provider_mock):
+@pytest.mark.asyncio
+async def test_create_node_ip_address_classification(mocker, ip_addr, expected_public, desc, provider_mock):
     """Tests the IP address classification logic through the create_node method"""
     # arrange
     mocker.patch('astrolabe.discover.providers.get_provider_by_ref')
     nt = mocker.MagicMock(address=ip_addr)
 
     # act
-    _, n = node.create_node(nt, provider_mock)
+    _, n = await node.create_node(nt, provider_mock)
 
     # assert
     assert n.public_ip == expected_public, f"public_ip flag wrong for {desc}: {ip_addr}"
@@ -599,6 +623,24 @@ async def test_discover_case_respect_cli_skip_protocols(tree, provider_mock, ps_
     await discover.discover(tree, [])
     # assert
     provider_mock.profile.assert_called_once_with(list(tree.values())[0], [], mocker.ANY)
+
+
+@pytest.mark.asyncio
+async def test_discover_respect_provider_disqualifies_node(tree, provider_mock, utcnow):
+    """Test that discovery respects the qualify_node check from providers"""
+    # arrange
+    provider_mock.qualify_node.return_value = False
+
+    # act
+    await discover.discover(tree, [])
+
+    # assert
+    provider_mock.qualify_node.assert_called_once_with(list(tree.values())[0])
+    provider_mock.open_connection.assert_not_called()
+    provider_mock.lookup_name.assert_not_called()
+    provider_mock.profile.assert_not_called()
+    assert list(tree.values())[0].profile_complete(utcnow)
+    assert list(tree.values())[0].get_profile_timestamp() is not None
 
 
 @pytest.mark.asyncio

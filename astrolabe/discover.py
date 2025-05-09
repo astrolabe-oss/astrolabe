@@ -197,6 +197,12 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
         node.errors['CONNECT_SKIPPED'] = True
         return {}
 
+    # QUALIFY NODE FOR PROVIDER
+    if not await provider.qualify_node(node):
+        logs.logger.warning("Node %s (%s) does not quality for provider: %s (%s)",
+                            node_ref, node.address, provider.ref(), provider.cluster())
+        return {}
+
     # OPEN CONNECTION
     logs.logger.debug("Opening connection: %s", node.address)
     conn = await asyncio.wait_for(provider.open_connection(node.address), constants.ARGS.connection_timeout)
@@ -329,7 +335,7 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
                 logs.logger.debug("Excluded profile result: `%s`. Reason: protocol_mux_skipped",
                                   node_transport.protocol_mux)
                 continue
-            child_ref, child = create_node(node_transport, provider)
+            child_ref, child = await create_node(node_transport, provider)
             if child:
                 children[child_ref] = child
 

@@ -201,6 +201,7 @@ class ProviderAWS(ProviderInterface):
                 lb_node = None
                 lb_address = lb['DNSName']
                 lb_name = lb['LoadBalancerName']
+                lb_vpc_ip = lb.get('VpcId') or lb.get('VPCId') or 'UNKNOWN'
                 listeners = self.elb_client.describe_listeners(LoadBalancerArn=lb['LoadBalancerArn'])['Listeners']
                 lb_port = listeners[0]['Port'] if listeners else None
                 tags_response = self.elb_client.describe_tags(ResourceArns=[lb['LoadBalancerArn']])
@@ -217,7 +218,8 @@ class ProviderAWS(ProviderInterface):
                         provider='aws',
                         protocol=PROTOCOL_TCP,
                         protocol_mux=lb_port,
-                        aliases=[lb_address]
+                        aliases=[lb_address],
+                        cluster=lb_vpc_ip
                     )
                     lb_node.set_profile_timestamp()
                     if lb_app_tag:
@@ -257,7 +259,8 @@ class ProviderAWS(ProviderInterface):
                                     protocol=PROTOCOL_TCP,
                                     protocol_mux=tg_port,
                                     provider='aws',
-                                    service_name=lb_app_tag
+                                    service_name=lb_app_tag,
+                                    cluster=lb_vpc_ip
                                 )
                                 asg_node.set_profile_timestamp()
                                 asg_nodes[f"ASG_{asg_name}"] = asg_node
@@ -281,7 +284,8 @@ class ProviderAWS(ProviderInterface):
                                 profile_strategy_name=INVENTORY_PROFILE_STRATEGY_NAME,
                                 protocol=PROTOCOL_TCP,
                                 protocol_mux=tg_port,
-                                provider='ssh'
+                                provider='ssh',
+                                cluster=lb_vpc_ip
                             )
                             ec2_node.set_profile_timestamp()
                             database.save_node(ec2_node)

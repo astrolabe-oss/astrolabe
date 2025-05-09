@@ -126,7 +126,6 @@ class PlatDBNode(StructuredNode):
     profile_strategy_name = StringProperty()
     provider = StringProperty()
     app_name = StringProperty()
-    cluster = StringProperty()
 
     # New fields to mirror `warnings` and `errors` in Astrolabe Node class
     profile_warnings = JSONProperty(default={})
@@ -201,10 +200,13 @@ class PlatDBNetworkNode(PlatDBNode):
     protocol = StringProperty()
     protocol_multiplexor = StringProperty()
     public_ip = BooleanProperty()
+    ipaddrs = ArrayProperty(StringProperty(), null=True)
+    cluster = StringProperty()
 
 
 class Deployment(PlatDBNetworkNode):
     name = StringProperty(unique_index=True)
+    cluster = StringProperty(required=True)
     deployment_type = StringProperty(choices={
         "aws_asg": "AWS Auto Scaling Group",
         "k8s_deployment": "K8s Deployment"})
@@ -240,7 +242,6 @@ class PlatDBDNSNode(PlatDBNetworkNode):
     __abstract_node__ = True
     address = StringProperty(unique_index=True, null=True, required=False)
     dns_names = ArrayProperty(StringProperty(), unique_index=True, null=True)
-    ipaddrs = ArrayProperty(StringProperty(), null=True)
 
     # pylint:disable=arguments-differ
     @classmethod

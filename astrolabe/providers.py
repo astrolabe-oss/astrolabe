@@ -52,6 +52,14 @@ class ProviderInterface(PluginInterface):
         """
         return None
 
+    async def qualify_node(self, node: Node) -> bool:
+        """
+        Determines whether a given node "belongs" to this provider and can be profiled, etc
+
+        :return: bool: True if the node qualifies, false if no.
+        """
+        return node is not None
+
     async def open_connection(self, address: str) -> Optional[type]:
         """
         Optionally open a connection which can then be passed into lookup_name() and discover()

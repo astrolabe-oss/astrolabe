@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 from enum import Enum
 import ipaddress
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 from dataclasses import dataclass, field, asdict, is_dataclass, fields, replace
 from datetime import datetime, timezone
 import json
@@ -168,7 +168,8 @@ def merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
             setattr(copyto_node, attr_name, copyfrom_value)
 
 
-def create_node(node_transport: NodeTransport, provider: 'providers.ProviderInterface') -> (str, Optional[Node]):  # noqa: F821  # Avoid circular import  # pylint:disable=line-too-long
+async def create_node(node_transport: NodeTransport, provider: 'providers.ProviderInterface',  # noqa: F821  # Avoid circular import  # pylint:disable=line-too-long
+                      cluster: Optional[str] = None) -> (str, Optional[Node]):  # noqa: F821  # Avoid circular import  # pylint:disable=line-too-long
     if constants.ARGS.obfuscate:
         obfsc_mux = obfuscate.obfuscate_protocol_mux(node_transport.protocol_mux)
         node_transport = replace(node_transport, protocol_mux=obfsc_mux)
@@ -177,7 +178,8 @@ def create_node(node_transport: NodeTransport, provider: 'providers.ProviderInte
                          node_transport.provider, node_transport.address, node_transport.provider)
         return "", None
 
-    public_ip = _is_public_ip(node_transport.address)
+    parsed_ip = _is_ip(node_transport.address)
+    public_ip = parsed_ip and _is_public_ip(parsed_ip)
     node = Node(
         profile_strategy_name=node_transport.profile_strategy_name,
         protocol=node_transport.protocol,
@@ -186,12 +188,15 @@ def create_node(node_transport: NodeTransport, provider: 'providers.ProviderInte
         containerized=provider.is_container_platform(),
         from_hint=node_transport.from_hint,
         public_ip=public_ip,
+        ipaddrs=[node_transport.address] if parsed_ip else [],
+        cluster=cluster,
         address=node_transport.address,
         service_name=node_transport.debug_identifier if node_transport.from_hint else None,
         metadata=node_transport.metadata,
-        node_type=node_transport.node_type,
-        cluster=provider.cluster()
+        node_type=node_transport.node_type
     )
+    if not cluster and await provider.qualify_node(node):
+        node.cluster = provider.cluster()
 
     # warnings/errors
     if not node_transport.address or 'null' == node_transport.address:
@@ -205,14 +210,21 @@ def create_node(node_transport: NodeTransport, provider: 'providers.ProviderInte
     return node_ref, node
 
 
-def _is_public_ip(ip_string):
+def _is_ip(address_string: str) -> Union[bool, ipaddress.IPv4Address, ipaddress.IPv6Address]:
     try:
-        ip = ipaddress.ip_address(ip_string)
-        if ip.is_unspecified:
-            # for our implementation we are considering unknown as "public"
-            return True
-        if ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
-            return False
-        return not ip.is_private
+        return ipaddress.ip_address(address_string)
     except ValueError:
         return False
+
+
+def _is_special_ip(ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]):
+    return ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_multicast
+
+
+def _is_public_ip(ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]):
+    if ip.is_unspecified:
+        # for our implementation we are considering unknown as "public"
+        return True
+    if _is_special_ip(ip):
+        return False
+    return not ip.is_private

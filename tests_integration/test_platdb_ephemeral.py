@@ -31,12 +31,14 @@ neo4j_db_fixtures = [
         "deployment_type": "aws_asg",
         "address": "1.2.3.4",
         "protocol": "TCP",
-        "protocol_multiplexor": "80"
+        "protocol_multiplexor": "80",
+        "cluster": "vpc-123f9d9"
     }, {
         "deployment_type": "k8s_deployment",
         "address": "5.6.7.8",
         "protocol": "HTTP",
-        "protocol_multiplexor": "443"
+        "protocol_multiplexor": "443",
+        "cluster": "eks-i-am-a-cluster"
     }),
     (Resource, {
         "name": "resource1",

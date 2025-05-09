@@ -60,16 +60,16 @@ providerArgs:
                     # This is from tcp6 - check if it's an IPv4-mapped address
                     if [ "${local_ip_hex:0:24}" = "0000000000000000FFFF0000" ]; then
                         # IPv4-mapped address - extract the IPv4 part
-                        local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${local_ip_hex:24:2}" 0x"${local_ip_hex:26:2}" 0x"${local_ip_hex:28:2}" 0x"${local_ip_hex:30:2}")
-                        rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${rem_ip_hex:24:2}" 0x"${rem_ip_hex:26:2}" 0x"${rem_ip_hex:28:2}" 0x"${rem_ip_hex:30:2}")
+                        local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${local_ip_hex:30:2}" 0x"${local_ip_hex:28:2}" 0x"${local_ip_hex:26:2}" 0x"${local_ip_hex:24:2}")
+                        rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${rem_ip_hex:30:2}" 0x"${rem_ip_hex:28:2}" 0x"${rem_ip_hex:26:2}" 0x"${rem_ip_hex:24:2}")
                     else
                         # Skip true IPv6 addresses
                         continue
                     fi
                 else
                     # Convert hex IP to decimal IP
-                    local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$local_ip_hex" | cut -c7-8)" 0x"$(echo "$local_ip_hex" | cut -c5-6)" 0x"$(echo "$local_ip_hex" | cut -c3-4)" 0x"$(echo "$local_ip_hex" | cut -c1-2)")
-                    rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"$(echo "$rem_ip_hex" | cut -c7-8)" 0x"$(echo "$rem_ip_hex" | cut -c5-6)" 0x"$(echo "$rem_ip_hex" | cut -c3-4)" 0x"$(echo "$rem_ip_hex" | cut -c1-2)")
+                    local_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${local_ip_hex:6:2}" 0x"${local_ip_hex:4:2}" 0x"${local_ip_hex:2:2}" 0x"${local_ip_hex:0:2}")
+                    rem_ip_dec=$(printf "%d.%d.%d.%d\n" 0x"${rem_ip_hex:6:2}" 0x"${rem_ip_hex:4:2}" 0x"${rem_ip_hex:2:2}" 0x"${rem_ip_hex:0:2}")
                 fi
         
                 # Convert hex port to decimal port
@@ -110,8 +110,10 @@ providerArgs:
 childProvider:
     type: "matchPort"
     matches:
-        5432: ["aws", "RESOURCE"]
-        6379: ["aws", "RESOURCE"]
-        80: ["k8s", "COMPUTE"]
-        443: ["k8s", "COMPUTE"]
-    default: ["k8s", "UNKNOWN"]
+        5432: ["aws", "RESOURCE"]   # PostreSQL
+        6379: ["aws", "RESOURCE"]   # REDIS
+        80: ["k8s", "COMPUTE"]      # w3
+        443: ["k8s", "COMPUTE"]     # w3
+        8080: ["k8s", "COMPUTE"]    # w3
+        8883: ["k8s", "COMPUTE"]    # MQTT
+    default: ["k8s", "COMPUTE"]
