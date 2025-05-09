@@ -8,11 +8,13 @@ License:
 SPDX-License-Identifier: Apache-2.0
 """
 from enum import Enum
-from typing import Dict, Optional, List
-from dataclasses import dataclass, field, asdict, is_dataclass, fields
+import ipaddress
+from typing import Dict, Optional, List, Union
+from dataclasses import dataclass, field, asdict, is_dataclass, fields, replace
 from datetime import datetime, timezone
 import json
 
+from astrolabe import constants, obfuscate, logs
 
 database_muxes = ['3306', '9160', '5432', '6379', '11211']
 
@@ -81,6 +83,7 @@ class Node:
     errors: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
     node_type: NodeType = NodeType(NodeType.COMPUTE)
+    cluster: Optional[str] = None
     __type__: str = 'Node'  # for json serialization/deserialization
 
     def __str__(self):
@@ -163,3 +166,65 @@ def merge_node(copyto_node: Node, copyfrom_node: Node) -> None:
         # Only copy if the source value is not None, empty string, empty dict, or empty list
         if copyfrom_value is not None and copyfrom_value != "" and copyfrom_value != {} and copyfrom_value != []:
             setattr(copyto_node, attr_name, copyfrom_value)
+
+
+async def create_node(node_transport: NodeTransport, provider: 'providers.ProviderInterface',  # noqa: F821  # Avoid circular import  # pylint:disable=line-too-long
+                      cluster: Optional[str] = None) -> (str, Optional[Node]):  # noqa: F821  # Avoid circular import  # pylint:disable=line-too-long
+    if constants.ARGS.obfuscate:
+        obfsc_mux = obfuscate.obfuscate_protocol_mux(node_transport.protocol_mux)
+        node_transport = replace(node_transport, protocol_mux=obfsc_mux)
+    if node_transport.provider in constants.ARGS.disable_providers:
+        logs.logger.info("Skipping discovery for node: %s:%s due to disabled provider: %s",
+                         node_transport.provider, node_transport.address, node_transport.provider)
+        return "", None
+
+    parsed_ip = _is_ip(node_transport.address)
+    public_ip = parsed_ip and _is_public_ip(parsed_ip)
+    node = Node(
+        profile_strategy_name=node_transport.profile_strategy_name,
+        protocol=node_transport.protocol,
+        protocol_mux=node_transport.protocol_mux,
+        provider='www' if public_ip else node_transport.provider,
+        containerized=provider.is_container_platform(),
+        from_hint=node_transport.from_hint,
+        public_ip=public_ip,
+        ipaddrs=[node_transport.address] if parsed_ip else [],
+        cluster=cluster,
+        address=node_transport.address,
+        service_name=node_transport.debug_identifier if node_transport.from_hint else None,
+        metadata=node_transport.metadata,
+        node_type=node_transport.node_type
+    )
+    if not cluster and await provider.qualify_node(node):
+        node.cluster = provider.cluster()
+
+    # warnings/errors
+    if not node_transport.address or 'null' == node_transport.address:
+        node.errors['NULL_ADDRESS'] = True
+    if 0 == node_transport.num_connections:
+        node.warnings['DEFUNCT'] = True
+
+    node_ref = '_'.join(str(x) for x in [node_transport.protocol.ref, node_transport.address,
+                        node_transport.protocol_mux, node_transport.debug_identifier]
+                        if x is not None)
+    return node_ref, node
+
+
+def _is_ip(address_string: str) -> Union[bool, ipaddress.IPv4Address, ipaddress.IPv6Address]:
+    try:
+        return ipaddress.ip_address(address_string)
+    except ValueError:
+        return False
+
+
+def _is_special_ip(ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]):
+    return ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_multicast
+
+
+def _is_public_ip(ip: Union[ipaddress.IPv4Address, ipaddress.IPv6Address]):
+    if ip.is_unspecified:
+        # for our implementation we are considering unknown as "public"
+        return True
+    if _is_special_ip(ip):
+        return False
+    return not ip.is_private

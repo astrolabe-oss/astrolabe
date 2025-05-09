@@ -3,13 +3,19 @@
 import pytest
 
 from kubernetes_asyncio.client.models import V1PodList, V1ServiceList, V1Pod, V1Service
-from astrolabe.plugins.provider_k8s import ProviderKubernetes
+from astrolabe.plugins import provider_k8s
+from astrolabe.node import NodeType
+
+
+@pytest.fixture(autouse=True)
+def clear_pod_cache():
+    provider_k8s.pod_cache = {}
 
 
 @pytest.fixture
 def k8s_provider(mocker):
     """Returns a ProviderKubernetes instance with mocked API."""
-    provider = ProviderKubernetes()
+    provider = provider_k8s.ProviderKubernetes()
     provider.api = mocker.Mock()
     provider.api.list_service_for_all_namespaces = mocker.AsyncMock()
     provider.api.list_namespaced_pod = mocker.AsyncMock()
@@ -102,7 +108,7 @@ async def test_profile_k8s_service_respects_default_excluded_namespaces(
 @pytest.fixture
 def mock_pfs_response(mocker, k8s_provider):
     # Mock exec response to return a result
-    mocker.patch('astrolabe.plugins.provider_k8s.parse_profile_strategy_response', return_value=["mocked-result"])
+    mocker.patch('astrolabe.plugins.provider_k8s.parse_profile_strategy_response', return_value=[mocker.MagicMock()])
     k8s_provider.ws_api = mocker.Mock()
     k8s_provider.ws_api.connect_get_namespaced_pod_exec = mocker.AsyncMock(return_value="test response")
 
@@ -193,3 +199,77 @@ async def test_sidecar_respects_excluded_namespaces(
     # Assert
     # Verify pods were queried from the allowed namespace
     assert k8s_provider.ws_api.connect_get_namespaced_pod_exec.call_count == allowed
+
+
+@pytest.mark.parametrize('node_type,node_cluster,prov_cluster,qualifies', [
+    (NodeType.DEPLOYMENT, 'cluster1', 'cluster1', True),
+    (NodeType.DEPLOYMENT, 'cluster1', 'cluster2', False),
+    (NodeType.TRAFFIC_CONTROLLER, 'cluster1', 'cluster1', True),
+    (NodeType.TRAFFIC_CONTROLLER, 'cluster1', 'cluster2', False),
+    (NodeType.RESOURCE, 'doesntmatter', 'doesntmatter', False),
+    (NodeType.COMPUTE, 'cluster1', 'cluster1', True),
+])
+@pytest.mark.asyncio
+async def test_qualify_node_standard_paths(k8s_provider, node_fixture, prov_cluster,
+                                           node_cluster, node_type, qualifies):
+    """Test qualify_node for standard pathways"""
+    # Arrange
+    node_fixture.cluster = node_cluster
+    node_fixture.node_type = node_type
+    k8s_provider._cluster_name = prov_cluster  # pylint:disable=protected-access
+
+    # Act
+    provider_qualified = await k8s_provider.qualify_node(node_fixture)
+
+    # Assert
+    assert provider_qualified == qualifies
+
+
+@pytest.mark.parametrize('node_address,pod_cache,qualifies', [
+    (None, {'does_not_matter': 'does_not_matter'}, False),
+    ('foo', {'foo': 'bar'}, True),
+    ('foo', {'cats': 'dogs'}, False),
+    ('foo', {}, False)
+])
+@pytest.mark.asyncio
+async def test_qualify_node_check_pod_cache_podname(k8s_provider, node_fixture, node_address, pod_cache, qualifies):
+    """Check if we have cached the pod by name in our local cache.  We consider the pod name to be Node.address
+       in astrolabeland."""
+    # Arrange
+    node_fixture.cluster = None
+    node_fixture.node_type = NodeType.COMPUTE
+    node_fixture.address = node_address
+    node_fixture.ipaddrs = None
+    k8s_provider._cluster_name = 'does_not_matter'  # pylint:disable=protected-access
+    # don't be confused... setting pod cache on the module not the object!
+    provider_k8s.pod_cache = pod_cache
+
+    # Act
+    provider_qualified = await k8s_provider.qualify_node(node_fixture)
+
+    # Assert
+    assert provider_qualified == qualifies
+
+
+@pytest.mark.parametrize('node_ipaddrs,pod_cache_ip,qualifies', [
+    (None, 'does_not_matter', False),
+    (['1.2.3.4', '5,6,7,8'], '1.2.3.4', True),
+    (['1.2.3.4', '5,6,7,8'], '4.3.2.1', False),
+])
+@pytest.mark.asyncio
+async def test_qualify_node_check_pod_ips(k8s_provider, mocker, node_fixture, node_ipaddrs, pod_cache_ip, qualifies):
+    """Test qualify_cluster returns True and sets cluster name when cluster name exists."""
+    # Arrange
+    node_fixture.cluster = None
+    node_fixture.node_type = NodeType.COMPUTE
+    node_fixture.ipaddrs = node_ipaddrs
+    k8s_provider._cluster_name = 'does_not_matter'  # pylint:disable=protected-access
+    provider_k8s.pod_cache = {'a_pod': mocker.Mock(**{'status.pod_ip': pod_cache_ip})}
+    # ensure we don't check the pod cache by address/pod name
+    node_fixture.address = None
+
+    # Act
+    provider_qualified = await k8s_provider.qualify_node(node_fixture)
+
+    # Assert
+    assert provider_qualified == qualifies

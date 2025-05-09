@@ -19,6 +19,12 @@ def lb_dns_name():
 
 
 @pytest.fixture
+def lb_vpc_id():
+    """The load balancer vpcid"""
+    return "vpc-12345abcdef"
+
+
+@pytest.fixture
 def asg_name():
     """The auto scaling group name used in the test"""
     return "test-asg"
@@ -43,7 +49,7 @@ def mock_boto3_setup(mocker):
 
 
 @pytest.fixture
-def mock_elb_client(mocker, lb_dns_name, app_name):
+def mock_elb_client(mocker, lb_dns_name, lb_vpc_id, app_name):
     """Create a mock ELB client with appropriate responses"""
     mock_client = mocker.MagicMock()
 
@@ -54,7 +60,8 @@ def mock_elb_client(mocker, lb_dns_name, app_name):
             'LoadBalancerArn':
                 'arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/test-lb/50dc6c495c0c9188',
             'DNSName': lb_dns_name,
-            'LoadBalancerName': 'test-lb'
+            'LoadBalancerName': 'test-lb',
+            'VpcId': lb_vpc_id
         }]
     }]
     mock_client.get_paginator.return_value = mock_paginator
@@ -344,3 +351,48 @@ class TestProviderAWS:
         compute_node = database.get_node_by_address(public_ip)
         assert compute_node is None, \
             f"COMPUTE node with address={public_ip} should not be created for a Kubernetes ELB"
+
+    # pylint:disable=too-many-locals
+    @pytest.mark.parametrize('vpc_id_resp_key,vpc_id_resp,vpc_id_exp', [
+        ('VpcId', None, 'UNKNOWN'),
+        ('VPCId', None, 'UNKNOWN'),
+        ('VpcId', 'vpc-abc123', 'vpc-abc123'),
+        ('VPCId', 'vpc-abc123', 'vpc-abc123')
+    ])
+    def test_inventory_load_balancers_sets_cluster_from_vpc_id(self, patch_database, cli_args_mock,
+                                                               mock_boto3_setup, mock_boto3_client,
+                                                               vpc_id_resp_key, vpc_id_resp, vpc_id_exp):
+        """Test that VPC ID is set as the cluster value for Load Balancer and children nodes"""
+        # Arrange
+        cli_args_mock.aws_app_name_tag = 'AppName'
+        cli_args_mock.aws_use_private_ips = False
+        provider = ProviderAWS()
+
+        lb_response_data = {
+            'LoadBalancerArn': 'arn:aws:elasticloadbalancing:us-west-2:123456789012:loadbalancer/app/test-lb/50dc6c495c0c9188',  # pylint:disable=line-too-long
+            'DNSName': 'test-lb-123456789.us-west-2.elb.amazonaws.com',
+            'LoadBalancerName': 'test-lb'
+        }
+        if vpc_id_resp:
+            lb_response_data[vpc_id_resp_key] = vpc_id_resp
+        elb_client = provider.elb_client
+        paginator_mock = elb_client.get_paginator.return_value
+        paginator_mock.paginate.return_value = [{'LoadBalancers': [lb_response_data]}]
+
+        # Act
+        provider._inventory_load_balancers()  # pylint:disable=protected-access
+
+        # Assert TC
+        lb_nodes = dict(database.get_nodes_pending_dnslookup())
+        assert len(lb_nodes) == 1
+        assert list(lb_nodes.values())[0].cluster == vpc_id_exp
+
+        # Assert DEPLOYMENT
+        asg_node = database.get_node_by_address('test-asg')
+        assert asg_node
+        assert asg_node.cluster == vpc_id_exp
+
+        # Assert
+        ec2_node = database.get_node_by_address('54.123.45.67')
+        assert ec2_node
+        assert ec2_node.cluster == vpc_id_exp

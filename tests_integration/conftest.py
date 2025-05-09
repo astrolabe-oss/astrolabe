@@ -50,8 +50,8 @@ def mock_complex_graph(neo4j_connection):
     app2 = Application(**{'name': 'app2'}).save()
     compute1 = Compute(**create_mock_service('compute1')).save()
     compute2 = Compute(**create_mock_service('compute2')).save()
-    deployment1 = Deployment(**{'address': 'addy1'}).save()
-    deployment2 = Deployment(**{'address': 'addy2'}).save()
+    deployment1 = Deployment(**{'address': 'addy1', 'cluster': 'aws_vpc_id'}).save()
+    deployment2 = Deployment(**{'address': 'addy2', 'cluster': 'eks-cluster'}).save()
 
     # Connections
     deployment1.computes.connect(compute1)

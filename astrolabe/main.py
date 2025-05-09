@@ -163,7 +163,7 @@ class DiscoverCommand(Command):
 
 
 async def _discover_network():
-    tree = _parse_seed_tree()
+    tree = await _parse_seed_tree()
     if constants.ARGS.quiet:
         await asyncio.gather(
             discover.discover(tree, []),
@@ -194,20 +194,23 @@ def _cli_command() -> Command:
         sys.exit(1)
 
 
-def _parse_seed_tree() -> Dict[str, node.Node]:
-    return {
-        f"{provider}:{address}":
-            node.Node(
-                profile_strategy_name=profile_strategy.SEED_PROFILE_STRATEGY_NAME,
-                protocol=network.PROTOCOL_SEED,
-                protocol_mux='seed',
-                provider=provider,
-                containerized=providers.get_provider_by_ref(provider).is_container_platform(),
-                from_hint=False,
-                address=address
-            )
-        for provider, address in [seed.split(':') for seed in constants.ARGS.seeds]
-    }
+async def _parse_seed_tree() -> Dict[str, node.Node]:
+    seeds = {}
+    for provider, address in [seed.split(':') for seed in constants.ARGS.seeds]:
+        # we do this so we call the niceties that come with create_node
+        nt = node.NodeTransport(
+            address=address,
+            protocol=network.get_protocol('TCP'),
+            protocol_mux='seed',
+            profile_strategy_name='_seed',
+            provider=provider,
+            from_hint=False,
+            node_type=node.NodeType(node.NodeType.COMPUTE)
+        )
+        provider_obj = providers.get_provider_by_ref(provider)
+        _ref, _node = await node.create_node(nt, provider_obj)
+        seeds[_ref] = _node
+    return seeds
 
 
 def _create_outputs_directory_if_absent():

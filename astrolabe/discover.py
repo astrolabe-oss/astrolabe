@@ -10,7 +10,6 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import asyncio
-import ipaddress
 import traceback
 
 from typing import Dict, List, Optional
@@ -21,7 +20,7 @@ from astrolabe import database, profile_strategy, network, constants, logs, obfu
 from astrolabe.constants import CURRENT_RUN_TIMESTAMP
 from astrolabe.profile_strategy import ProfileStrategy
 from astrolabe.providers import ProviderInterface
-from astrolabe.node import Node, NodeTransport, merge_node
+from astrolabe.node import Node, merge_node, create_node
 
 # An internal cache which prevents astrolabe from re-profiling a Compute node of the same Application
 # that has already been profiled on a different address. We may not want this "feature" going forward
@@ -198,6 +197,12 @@ async def _discovery_algo(node_ref: str, node: Node, ancestors: List[str], provi
         node.errors['CONNECT_SKIPPED'] = True
         return {}
 
+    # QUALIFY NODE FOR PROVIDER
+    if not await provider.qualify_node(node):
+        logs.logger.warning("Node %s (%s) does not quality for provider: %s (%s)",
+                            node_ref, node.address, provider.ref(), provider.cluster())
+        return {}
+
     # OPEN CONNECTION
     logs.logger.debug("Opening connection: %s", node.address)
     conn = await asyncio.wait_for(provider.open_connection(node.address), constants.ARGS.connection_timeout)
@@ -276,6 +281,7 @@ async def _lookup_service_name(node: Node, provider: providers.ProviderInterface
 # pylint:disable=too-many-locals
 async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str, Node]:  # noqa: C901, MC0001
     provider_ref = node.provider
+    provider = providers.get_provider_by_ref(provider_ref)
     service_name = node.service_name
 
     # COMPILE PROFILE STRATEGIES
@@ -290,7 +296,7 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
             continue
         profile_strategies.append(pfs)
     tasks.append(asyncio.wait_for(
-        providers.get_provider_by_ref(provider_ref).profile(node, profile_strategies, connection),
+        provider.profile(node, profile_strategies, connection),
         timeout=constants.ARGS.timeout
     ))
 
@@ -329,7 +335,7 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
                 logs.logger.debug("Excluded profile result: `%s`. Reason: protocol_mux_skipped",
                                   node_transport.protocol_mux)
                 continue
-            child_ref, child = create_node(node_transport)
+            child_ref, child = await create_node(node_transport, provider)
             if child:
                 children[child_ref] = child
 
@@ -340,51 +346,3 @@ async def _profile_node(node: Node, node_ref: str, connection: type) -> Dict[str
     nonexcluded_children = {ref: n for ref, n in children.items() if n.provider not in constants.ARGS.disable_providers}
 
     return nonexcluded_children
-
-
-def create_node(node_transport: NodeTransport) -> (str, Optional[Node]):
-    if constants.ARGS.obfuscate:
-        node_transport = obfuscate.obfuscate_node_transport(node_transport)
-    if node_transport.provider in constants.ARGS.disable_providers:
-        logs.logger.info("Skipping discovery for node: %s:%s due to disabled provider: %s",
-                         node_transport.provider, node_transport.address, node_transport.provider)
-        return "", None
-
-    public_ip = _is_public_ip(node_transport.address)
-    node = Node(
-        profile_strategy_name=node_transport.profile_strategy_name,
-        protocol=node_transport.protocol,
-        protocol_mux=node_transport.protocol_mux,
-        provider='www' if public_ip else node_transport.provider,
-        containerized=providers.get_provider_by_ref(node_transport.provider).is_container_platform(),
-        from_hint=node_transport.from_hint,
-        public_ip=public_ip,
-        address=node_transport.address,
-        service_name=node_transport.debug_identifier if node_transport.from_hint else None,
-        metadata=node_transport.metadata,
-        node_type=node_transport.node_type
-    )
-
-    # warnings/errors
-    if not node_transport.address or 'null' == node_transport.address:
-        node.errors['NULL_ADDRESS'] = True
-    if 0 == node_transport.num_connections:
-        node.warnings['DEFUNCT'] = True
-
-    node_ref = '_'.join(str(x) for x in [node_transport.protocol.ref, node_transport.address,
-                        node_transport.protocol_mux, node_transport.debug_identifier]
-                        if x is not None)
-    return node_ref, node
-
-
-def _is_public_ip(ip_string):
-    try:
-        ip = ipaddress.ip_address(ip_string)
-        if ip.is_unspecified:
-            # for our implementation we are considering unknown as "public"
-            return True
-        if ip.is_reserved or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
-            return False
-        return not ip.is_private
-    except ValueError:
-        return False

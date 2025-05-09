@@ -53,7 +53,8 @@ def _neomodel_to_node(platdb_node: platdb.PlatDBNode) -> Node:
         errors=platdb_node.profile_errors,
         _profile_timestamp=platdb_node.profile_timestamp,
         _profile_lock_time=platdb_node.profile_lock_time,
-        node_type=class_to_node[platdb_node.__class__]
+        node_type=class_to_node[platdb_node.__class__],
+        cluster=platdb_node.cluster
     )
 
     if hasattr(platdb_node, 'ipaddrs'):
@@ -86,7 +87,9 @@ def save_node(node: Node) -> Node:
         'provider': node.provider,
         'public_ip': node.public_ip,
         'profile_warnings': node.warnings,
-        'profile_errors': node.errors
+        'profile_errors': node.errors,
+        'cluster': node.cluster,
+        'ipaddrs': node.ipaddrs
     }
 
     # NOTE Node.node_type defaults to COMPUTE
@@ -139,7 +142,6 @@ def _merge_resource(node: Node, props: dict) -> platdb.PlatDBNode:
 
 def _merge_traffic_controller(node: Node, props: dict) -> platdb.PlatDBNode:
     props['dns_names'] = node.aliases
-    props['ipaddrs'] = node.ipaddrs
     tctl = platdb.TrafficController.create_or_update(props)[0]
 
     return tctl
@@ -346,7 +348,7 @@ def get_nodes_unprofiled(since: datetime) -> Dict[str, Node]:
             node = _neomodel_to_node(pdb_node)
             ref = f"{node.provider}:{node.node_type}:{node.address or ','.join(node.aliases)}"
             results[ref] = node
-
+    logs.logger.debug("Found %d unprofiled nodes.", len(results))
     return results
 
 
