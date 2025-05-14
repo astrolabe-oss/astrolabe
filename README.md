@@ -1,5 +1,5 @@
 # Astrolabe
-![256px-Astrolabe](https://github.com/user-attachments/assets/d4f280d6-8492-46de-bf45-5dfcde9d8270)
+<img src="https://github.com/user-attachments/assets/5bcf7663-65fc-4fc3-b30e-da456a08d7d2" alt="Astrolabe Logo" width="250"/>
 
 Configure Astrolabe to discover your network topology by introspecting runtime environments.
 
