@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support multiple IP Addresses per node #5
 - Differentiate `node_name` and `service_name` #4
 - Refactored neomodel model relationships #3
+- Added Notstat profiling support for `/proc/net/tcp6` (formerlly only `/proc/net/tcp`)
 
 ## [0.0.1 Milestone 2] - 2024-11-13 Neo4J Rewrite
 SHA `652003c756a00a7ae104e43a9901c81a9022c29e`
