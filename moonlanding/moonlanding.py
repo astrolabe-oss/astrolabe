@@ -15,15 +15,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Tuple, Optional, Any
 
 from dotenv import load_dotenv
-from neo4j import GraphDatabase
+load_dotenv()  # Load environment variables before db init
 
-# Load environment variables from .env file if it exists
-load_dotenv()
+from astrolabe import database, network
+from astrolabe.node import Node, NodeType
+from astrolabe.network import PROTOCOL_TCP
 
-# Neo4j connection settings
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
+
 
 # Data generation settings
 NUM_EKS_CLUSTERS = int(os.getenv("NUM_EKS_CLUSTERS", "3"))
@@ -42,12 +40,13 @@ if NUM_PUBLIC_IP_NODES > MAX_POSSIBLE_NODES:
     NUM_PUBLIC_IP_NODES = MAX_POSSIBLE_NODES
 
 
-class Neo4jDataGenerator:
-    """Class for generating and inserting network topology data into Neo4j"""
+class AstrolabeDataGenerator:
+    """Class for generating and inserting network topology data into Neo4j using Astrolabe components"""
 
-    def __init__(self, uri: str, username: str, password: str):
-        """Initialize the Neo4j connection"""
-        self.driver = GraphDatabase.driver(uri, auth=(username, password))
+    def __init__(self):
+        # Initialize Astrolabe's database connection
+        database.init()
+
         self.app_names = []
         self.deployment_names = {}
         self.cluster_names = []
@@ -57,30 +56,16 @@ class Neo4jDataGenerator:
         self.compute_count = 0
         self.public_ips_assigned = 0
         self.unknown_clusters_assigned = 0
-        self.compute_queries = []
+        self.compute_nodes = []
         # Statistics for traffic controller creation
         self.tc_count = 0
-        self.tc_queries = []
+        self.tc_nodes = []
+        # Store all nodes for relationship creation
+        self.all_nodes = {}
 
     def close(self) -> None:
         """Close the Neo4j connection"""
-        self.driver.close()
-
-    def run_query(self, query: str, params: Optional[Dict[str, Any]] = None) -> None:
-        """Execute a Cypher query with parameters"""
-        with self.driver.session() as session:
-            try:
-                session.run(query, params or {})
-            except Exception as e:
-                print(f"Error executing query: {e}")
-                print(f"Query was: {query}")
-                raise
-
-    def run_queries(self, queries: List[str], params: Optional[Dict[str, Any]] = None) -> None:
-        """Execute multiple Cypher queries separately"""
-        for query in queries:
-            if query.strip():  # Skip empty queries
-                self.run_query(query, params)
+        database.close()
 
     def generate_random_name(self, prefix: str) -> str:
         """Generate a random name with the given prefix"""
@@ -105,7 +90,7 @@ class Neo4jDataGenerator:
         now = time.time()  # Current time in seconds (Unix timestamp)
         return now - random.uniform(0, 86400)  # Random offset up to 1 day
 
-    def initialize_data(self) -> None:
+    def initialize_configurations(self) -> None:
         """Initialize data structures with names and references"""
         # Generate EKS cluster names
         for i in range(NUM_EKS_CLUSTERS):
@@ -148,49 +133,27 @@ class Neo4jDataGenerator:
         for app_kebab, _ in self.app_names:
             self.resource_names.append(f"{app_kebab}-cache")
 
-    def create_applications(self) -> None:
-        """Create Application nodes"""
-        print("Creating applications...")
-        queries = []
-
-        for i, (kebab_name, camel_name) in enumerate(self.app_names):
-            provider = "k8s" if i < NUM_APPLICATIONS * 0.8 else "aws"  # 80% k8s, 20% aws
-            timestamp = self.generate_timestamps()
-
-            query = f"""
-            CREATE (app{i}:Application {{
-                name: "{camel_name}", 
-                profile_timestamp: {timestamp}, 
-                profile_warnings: "{{}}", 
-                profile_errors: "{{}}", 
-                profile_strategy_name: "Inventory", 
-                provider: "{provider}", 
-                app_name: "{kebab_name}"
-            }})
-            """
-            queries.append(query)
-
-        self.run_queries(queries)
-        print(f"Created {NUM_APPLICATIONS} applications")
 
     def create_deployments(self) -> None:
         """Create Deployment nodes and connect them to Applications"""
         print("Creating deployments...")
-        queries = []
 
         # Calculate how many compute nodes should have unknown clusters
         total_computes = sum(len(deployments) * NUM_COMPUTES_PER_DEPLOYMENT
                            for deployments in self.deployment_names.values())
         unknown_cluster_target = int(total_computes * PERCENT_UNKNOWN_CLUSTER / 100)
-    
+
         # Reset compute node and traffic controller statistics
         self.compute_count = 0
         self.public_ips_assigned = 0
         self.unknown_clusters_assigned = 0
-        self.compute_queries = []
+        self.compute_nodes = []
         self.tc_count = 0
-        self.tc_queries = []
-    
+        self.tc_nodes = []
+
+        # Track public IP nodes that need connections
+        self.public_ip_nodes_by_deployment = {}
+
         deployment_count = 0
         for i, (kebab_name, _) in enumerate(self.app_names):
             for j, deployment_name in enumerate(self.deployment_names[kebab_name]):
@@ -201,45 +164,42 @@ class Neo4jDataGenerator:
                 else:
                     # If single-cluster, use the app index to determine cluster
                     cluster_index = i % NUM_EKS_CLUSTERS
-    
+
                 cluster = self.cluster_names[cluster_index]
-    
+
                 # Check if this is a canary deployment
                 is_canary = "canary" in deployment_name
-    
+
                 # Generate address and other properties
                 address = self.generate_ip_address(vpc_index=cluster_index)
-                protocol = "TCP"
                 protocol_multiplexor = str(random.randint(30000, 32767))
-                timestamp = self.generate_timestamps()
-    
+
                 # Create deployment node
-                create_query = f"""
-                CREATE (deploy{deployment_count}:Deployment {{
-                    name: "{deployment_name}", 
-                    address: "{address}", 
-                    protocol: "{protocol}", 
-                    protocol_multiplexor: "{protocol_multiplexor}", 
-                    public_ip: false, 
-                    cluster: "{cluster}", 
-                    deployment_type: "k8s_deployment", 
-                    profile_timestamp: {timestamp}, 
-                    profile_warnings: "{{}}", 
-                    profile_errors: "{{}}", 
-                    profile_strategy_name: "Inventory", 
-                    provider: "k8s", 
-                    app_name: "{kebab_name}"
-                }})
-                """
-                queries.append(create_query)
-    
-                # Create the IMPLEMENTED_BY relationship - separate query
-                relationship_query = f"""
-                MATCH (app:Application {{app_name: "{kebab_name}"}}), (deploy:Deployment {{name: "{deployment_name}"}})
-                CREATE (app)-[:IMPLEMENTED_BY]->(deploy)
-                """
-                queries.append(relationship_query)
-    
+                deployment_node = Node(
+                    profile_strategy_name="Inventory",
+                    provider="k8s",
+                    node_name=deployment_name,
+                    service_name=kebab_name,
+                    node_type=NodeType.DEPLOYMENT,
+                    protocol=PROTOCOL_TCP,
+                    protocol_mux=protocol_multiplexor,
+                    address=address,
+                    public_ip=False,
+                    cluster=cluster
+                )
+
+                # Set profile timestamp
+                deployment_node.set_profile_timestamp()
+
+                # Save the node to the database
+                saved_deployment = database.save_node(deployment_node)
+
+                # Store the node for later use in creating relationships
+                self.all_nodes[deployment_name] = saved_deployment
+
+                # Note: The deployment is automatically connected to its application
+                # when it's saved because it has a service_name set
+
                 # Create compute nodes for this deployment
                 for pod_index in range(NUM_COMPUTES_PER_DEPLOYMENT):
                     self._create_compute_node(
@@ -249,7 +209,10 @@ class Neo4jDataGenerator:
                         pod_index=pod_index,
                         unknown_cluster_target=unknown_cluster_target
                     )
-                
+
+                # Ensure all public IP nodes for this deployment are connected to at least one non-public IP node
+                self._connect_public_ip_nodes(deployment_name)
+
                 # Create traffic controller if this is a main deployment
                 if "main" in deployment_name:
                     self._create_traffic_controller(
@@ -257,28 +220,18 @@ class Neo4jDataGenerator:
                         deployment_name=deployment_name,
                         cluster=cluster
                     )
-    
+
                 deployment_count += 1
-    
-        # Run queries to create deployments and their relationships
-        self.run_queries(queries)
+
         print(f"Created {deployment_count} deployments and connected them to applications")
-    
-        # Run queries to create compute nodes and their relationships
-        if self.compute_queries:
-            self.run_queries(self.compute_queries)
-            print(f"Created {self.compute_count} compute nodes with {self.public_ips_assigned} public IPs")
-            print(f"Assigned {self.unknown_clusters_assigned} compute nodes to unknown clusters")
-        
-        # Run queries to create traffic controllers and their relationships
-        if self.tc_queries:
-            self.run_queries(self.tc_queries)
-            print(f"Created {self.tc_count} traffic controllers and connected them to deployments")
+        print(f"Created {self.compute_count} compute nodes with {self.public_ips_assigned} public IPs")
+        print(f"Assigned {self.unknown_clusters_assigned} compute nodes to unknown clusters")
+        print(f"Created {self.tc_count} traffic controllers and connected them to deployments")
 
     def _create_compute_node(self, app_kebab: str, deployment_name: str, cluster: str, 
                             pod_index: int, unknown_cluster_target: int) -> None:
         """Create a single compute node and connect it to a deployment
-        
+
         Args:
             app_kebab: The application name in kebab format
             deployment_name: The name of the deployment this node belongs to
@@ -287,7 +240,7 @@ class Neo4jDataGenerator:
             unknown_cluster_target: Target number of nodes with unknown clusters
         """
         pod_name = f"{deployment_name}-pod-{pod_index+1}"
-    
+
         # Determine if this pod should have a public IP
         has_public_ip = self.public_ips_assigned < NUM_PUBLIC_IP_NODES and random.random() < 0.5
         if has_public_ip:
@@ -295,65 +248,87 @@ class Neo4jDataGenerator:
             self.public_ips_assigned += 1
         else:
             address = pod_name  # Use pod name as address
-    
+
         # Determine if this pod should have an unknown cluster
         if self.unknown_clusters_assigned < unknown_cluster_target and random.random() < 0.3:
             pod_cluster = "unknown"
             self.unknown_clusters_assigned += 1
         else:
             pod_cluster = cluster
-    
-        timestamp = self.generate_timestamps()
-    
+
         # Create compute node
-        create_query = f"""
-        CREATE (comp{self.compute_count}:Compute {{
-            name: "{pod_name}", 
-            address: "{address}", 
-            protocol: "TCP", 
-            protocol_multiplexor: "8080", 
-            public_ip: {str(has_public_ip).lower()}, 
-            cluster: "{pod_cluster}", 
-            profile_timestamp: {timestamp}, 
-            profile_warnings: "{{}}", 
-            profile_errors: "{{}}", 
-            profile_strategy_name: "Inventory", 
-            provider: "k8s", 
-            app_name: "{app_kebab}", 
-            platform: "k8s"
-        }})
-        """
-        self.compute_queries.append(create_query)
-    
-        # Create the HAS_MEMBER relationship
-        relationship_query = f"""
-        MATCH (deploy:Deployment {{name: "{deployment_name}"}}), (comp:Compute {{name: "{pod_name}"}})
-        CREATE (deploy)-[:HAS_MEMBER]->(comp)
-        """
-        self.compute_queries.append(relationship_query)
-    
-        self.compute_count += 1
-    
-    def create_compute_nodes(self) -> None:
-        """Initialize compute node creation and execute queries"""
-        print("Creating compute nodes...")
-        self.compute_count = 0
-        self.public_ips_assigned = 0
-        self.unknown_clusters_assigned = 0
-        self.compute_queries = []
-    
-        # Calculate how many compute nodes should have unknown clusters
-        total_computes = sum(len(deployments) * NUM_COMPUTES_PER_DEPLOYMENT
-                            for deployments in self.deployment_names.values())
-        unknown_cluster_target = int(total_computes * PERCENT_UNKNOWN_CLUSTER / 100)
-    
-        # Execute the compute node queries
-        if self.compute_queries:
-            self.run_queries(self.compute_queries)
-            print(f"Created {self.compute_count} compute nodes with {self.public_ips_assigned} public IPs")
-            print(f"Assigned {self.unknown_clusters_assigned} compute nodes to unknown clusters")
+        compute_node = Node(
+            profile_strategy_name="Inventory",
+            provider="k8s",
+            node_name=pod_name,
+            service_name=app_kebab,
+            node_type=NodeType.COMPUTE,
+            protocol=PROTOCOL_TCP,
+            protocol_mux="8080",
+            address=address,
+            public_ip=has_public_ip,
+            cluster=pod_cluster,
+            containerized=True
+        )
+
+        # Set profile timestamp
+        compute_node.set_profile_timestamp()
+
+        # Save the node to the database
+        saved_compute = database.save_node(compute_node)
+
+        # Store the node for later use in creating relationships
+        self.all_nodes[pod_name] = saved_compute
+        self.compute_nodes.append(saved_compute)
+
+        # Connect the compute node to its deployment only if it doesn't have a public IP
+        # Compute nodes with public_ip=true should only be connected via CALLS from other compute nodes
+        deployment_node = self.all_nodes[deployment_name]
+        if not has_public_ip:
+            database.connect_nodes(deployment_node, saved_compute)
+
+            # Find any public IP compute nodes for this deployment and connect from this node
+            for node in self.compute_nodes:
+                if (node.service_name == app_kebab and 
+                    node.public_ip and 
+                    node.node_name.startswith(deployment_name)):
+                    database.connect_nodes(saved_compute, node)
         else:
-            print("No compute nodes created - ensure deployments create their compute nodes")
+            # Track this public IP node for later connection
+            if deployment_name not in self.public_ip_nodes_by_deployment:
+                self.public_ip_nodes_by_deployment[deployment_name] = []
+            self.public_ip_nodes_by_deployment[deployment_name].append(saved_compute)
+
+        self.compute_count += 1
+
+    def _connect_public_ip_nodes(self, deployment_name: str) -> None:
+        """Ensure all public IP nodes for a deployment are connected to at least one non-public IP node
+
+        Args:
+            deployment_name: The name of the deployment to check
+        """
+        if deployment_name not in self.public_ip_nodes_by_deployment:
+            return
+
+        # Find all non-public IP compute nodes for this deployment
+        non_public_ip_nodes = [
+            node for node in self.compute_nodes 
+            if node.node_name.startswith(deployment_name) and not node.public_ip
+        ]
+
+        if not non_public_ip_nodes:
+            # If there are no non-public IP nodes, we can't connect the public IP nodes
+            # This should be rare given our random assignment of public IPs
+            return
+
+        # Connect each public IP node to a random non-public IP node
+        for public_ip_node in self.public_ip_nodes_by_deployment[deployment_name]:
+            non_public_ip_node = random.choice(non_public_ip_nodes)
+            database.connect_nodes(non_public_ip_node, public_ip_node)
+
+        # Clear the list of public IP nodes for this deployment
+        self.public_ip_nodes_by_deployment[deployment_name] = []
+
 
     def _create_traffic_controller(self, app_kebab: str, deployment_name: str, cluster: str) -> None:
         """Create a single traffic controller and connect it to relevant deployments
@@ -377,52 +352,46 @@ class Neo4jDataGenerator:
         random_suffix = ''.join(random.choices(string.digits, k=4))
         dns_name = f"k8s-{app_kebab}-main-{random_suffix}.elb.{region}.amazonaws.com"
 
-        timestamp = self.generate_timestamps()
-
         # Create traffic controller node
-        create_query = f"""
-        CREATE (tc{self.tc_count}:TrafficController {{
-            name: "{tc_name}", 
-            address: "{address}", 
-            protocol: "TCP", 
-            protocol_multiplexor: "80", 
-            public_ip: false, 
-            dns_names: ["{dns_name}"], 
-            cluster: "{cluster}", 
-            profile_timestamp: {timestamp}, 
-            profile_warnings: "{{}}", 
-            profile_errors: "{{}}", 
-            profile_strategy_name: "Inventory", 
-            provider: "k8s", 
-            app_name: "{app_kebab}"
-        }})
-        """
-        self.tc_queries.append(create_query)
+        tc_node = Node(
+            profile_strategy_name="Inventory",
+            provider="k8s",
+            node_name=tc_name,
+            service_name=app_kebab,
+            node_type=NodeType.TRAFFIC_CONTROLLER,
+            protocol=PROTOCOL_TCP,
+            protocol_mux="80",
+            address=address,
+            public_ip=False,
+            cluster=cluster,
+            aliases=[dns_name]
+        )
 
-        # Create FORWARDS_TO relationships between TrafficControllers and Deployments
-        # Main deployment gets full traffic
-        main_route_query = f"""
-        MATCH (tc:TrafficController {{name: "{tc_name}"}}), (deploy:Deployment {{name: "{deployment_name}"}})
-        CREATE (tc)-[:FORWARDS_TO]->(deploy)
-        """
-        self.tc_queries.append(main_route_query)
+        # Set profile timestamp
+        tc_node.set_profile_timestamp()
 
-        # Canary deployment gets partial traffic if it exists
+        # Save the node to the database
+        saved_tc = database.save_node(tc_node)
+
+        # Store the node for later use in creating relationships
+        self.all_nodes[tc_name] = saved_tc
+        self.tc_nodes.append(saved_tc)
+
+        # Connect the traffic controller to the main deployment
+        main_deployment = self.all_nodes[deployment_name]
+        database.connect_nodes(saved_tc, main_deployment)
+
+        # Connect to canary deployment if it exists
         canary_name = deployment_name.replace("main", "canary")
         if canary_name in self.deployment_names[app_kebab]:
-            weight = round(random.uniform(0.1, 0.3), 1)  # Random weight between 0.1 and 0.3
-            canary_route_query = f"""
-            MATCH (tc:TrafficController {{name: "{tc_name}"}}), (deploy:Deployment {{name: "{canary_name}"}})
-            CREATE (tc)-[:FORWARDS_TO {{weight: {weight}}}]->(deploy)
-            """
-            self.tc_queries.append(canary_route_query)
+            canary_deployment = self.all_nodes[canary_name]
+            database.connect_nodes(saved_tc, canary_deployment)
 
         self.tc_count += 1
 
     def create_resources(self) -> None:
         """Create Resource nodes for external services and databases"""
         print("Creating resources...")
-        queries = []
 
         # Define standard resources
         standard_resources = [
@@ -484,245 +453,266 @@ class Neo4jDataGenerator:
             }
         ]
 
-        # Create standard resources in a loop
-        for i, resource in enumerate(standard_resources):
-            dns_names_str = ", ".join([f'"{dns}"' for dns in resource["dns_names"]])
+        # Create standard resources
+        resource_count = 0
+        for resource_data in standard_resources:
+            resource_node = Node(
+                profile_strategy_name="Inventory",
+                provider=resource_data["provider"],
+                node_name=resource_data["name"],
+                node_type=NodeType.RESOURCE,
+                protocol=PROTOCOL_TCP,
+                protocol_mux=resource_data["protocol_multiplexor"],
+                address=resource_data["address"],
+                public_ip=resource_data["public_ip"],
+                cluster=resource_data["cluster"] or "",
+                aliases=resource_data["dns_names"]
+            )
 
-            timestamp = self.generate_timestamps()
-            query = f"""
-            CREATE (res{i + 1}:Resource {{
-                name: "{resource['name']}", 
-                address: "{resource['address']}", 
-                dns_names: [{dns_names_str}], 
-                protocol: "TCP", 
-                protocol_multiplexor: "{resource['protocol_multiplexor']}", 
-                public_ip: {str(resource['public_ip']).lower()}, 
-                cluster: "{resource['cluster']}", 
-                profile_timestamp: {timestamp}, 
-                profile_warnings: "{{}}", 
-                profile_errors: "{{}}", 
-                profile_strategy_name: "Inventory", 
-                provider: "{resource['provider']}"
-            }})
-            """
-            queries.append(query)
+            # Set profile timestamp
+            resource_node.set_profile_timestamp()
+
+            # Save the node to the database
+            saved_resource = database.save_node(resource_node)
+
+            # Store the node for later use in creating relationships
+            self.all_nodes[resource_data["name"]] = saved_resource
+            resource_count += 1
 
         # Create app-specific cache resources
-        resource_count = len(standard_resources) + 1  # Starting after the standard resources
         for app_kebab, _ in self.app_names:
             cache_name = f"{app_kebab}-cache"
 
-            timestamp = self.generate_timestamps()
-            query = f"""
-            CREATE (res{resource_count}:Resource {{
-                name: "{cache_name}",
-                address: "{cache_name}.internal",
-                dns_names: ["{cache_name}.internal"],
-                protocol: "TCP",
-                protocol_multiplexor: "6379",
-                public_ip: false,
-                cluster: "shared-services",
-                profile_timestamp: {timestamp},
-                profile_warnings: "{{}}",
-                profile_errors: "{{}}",
-                profile_strategy_name: "Inventory",
-                provider: "k8s"
-            }})
-            """
-            queries.append(query)
+            resource_node = Node(
+                profile_strategy_name="Inventory",
+                provider="k8s",
+                node_name=cache_name,
+                node_type=NodeType.RESOURCE,
+                protocol=PROTOCOL_TCP,
+                protocol_mux="6379",
+                address=f"{cache_name}.internal",
+                public_ip=False,
+                cluster="shared-services",
+                aliases=[f"{cache_name}.internal"]
+            )
 
+            # Set profile timestamp
+            resource_node.set_profile_timestamp()
+
+            # Save the node to the database
+            saved_resource = database.save_node(resource_node)
+
+            # Store the node for later use in creating relationships
+            self.all_nodes[cache_name] = saved_resource
             resource_count += 1
 
-        self.run_queries(queries)
-        print(f"Created {resource_count - 1} resources")
+        print(f"Created {resource_count} resources")
 
     def create_unknown_nodes(self) -> None:
         """Create Unknown nodes for endpoints that can't be identified"""
         print("Creating unknown nodes...")
-        queries = []
-        
+
         # Create a few unknown nodes
         for i in range(5):
-            timestamp = self.generate_timestamps()
-            query = f"""
-            CREATE (unk{i}:Unknown {{
-                name: "unknown-endpoint-{i+1}",
-                address: "unknown-endpoint-{i+1}",
-                profile_timestamp: {timestamp},
-                profile_warnings: "{{}}", 
-                profile_errors: "{{}}", 
-                profile_strategy_name: "Inventory",
-                cluster: "unknown",
-                provider: "ssh"
-            }})
-            """
-            queries.append(query)
-        
-        self.run_queries(queries)
+            unknown_name = f"unknown-endpoint-{i+1}"
+
+            unknown_node = Node(
+                profile_strategy_name="Inventory",
+                provider="ssh",
+                node_name=unknown_name,
+                node_type=NodeType.UNKNOWN,
+                address=unknown_name,
+                cluster="unknown"
+            )
+
+            # Set profile timestamp
+            unknown_node.set_profile_timestamp()
+
+            # Save the node to the database
+            saved_unknown = database.save_node(unknown_node)
+
+            # Store the node for later use in creating relationships
+            self.all_nodes[unknown_name] = saved_unknown
+
         print("Created 5 unknown nodes")
 
     def create_connections(self) -> None:
         """Create connections between nodes (CALLS, CONNECTS_TO relationships)"""
         print("Creating connections between nodes...")
 
-        # Define app-specific resource connections
+        # Create app-specific resource connections
         self._create_app_specific_resource_connections()
 
-        # Define shared resource connections with their patterns
-        shared_resource_connections = [
-            # format: (resource_name, probability, description)
-            ("postgres-main", 1.0, "All deployments use postgres"),
-            ("redis-main", 0.6, "Some deployments use redis"),
-            ("elasticsearch-main", 0.4, "Some deployments use elasticsearch"),
-            ("aws-s3", 1.0, "All deployments use S3"),
-            ("aws-dynamodb", 0.3, "Some deployments use DynamoDB"),
-            ("aws-sqs", 0.5, "Some deployments use SQS")
-        ]
+        # Create shared resource connections
+        self._create_shared_resource_connections()
 
-        # Create all shared resource connections
-        self._create_shared_resource_connections(shared_resource_connections)
+        # Create deployment-to-deployment connections
+        self._create_deployment_connections()
 
-        # Define other node-to-node connection patterns
-        node_connection_patterns = [
-            # Format: (source_label, target_label, relationship_type, match_conditions, probability, limit, props, description)
-            ("Deployment", "Deployment", "CALLS", "source.name <> target.name AND NOT EXISTS((source)-[:CALLS]->(target))",
-             0.15, 200, {}, "Create a mesh of deployment connections"),
+        # Create compute-to-unknown connections
+        self._create_compute_to_unknown_connections()
 
-            ("deploy1", "deploy2", "CALLS", "deploy1-[:CALLS]->deploy2, deploy1-[:HAS_MEMBER]->pod1, deploy2-[:HAS_MEMBER]->pod2",
-             0.7, None, {}, "Create pod-to-pod connections based on deployment connections"),
-
-            ("Compute", "Unknown", "CALLS", "source.platform = 'k8s'",
-             0.1, 20, {}, "Connect some pods to unknown endpoints"),
-        
-            ("Deployment", "TrafficController", "CALLS", "source.app_name <> target.app_name",
-             0.2, 50, {"protocol": "HTTP", "port": 80}, "Create HTTP/HTTPS traffic relationships")
-        ]
-
-        # Create all node-to-node connections
-        for pattern in node_connection_patterns:
-            self._create_node_connections(*pattern)
+        # Create deployment-to-traffic-controller connections
+        self._create_deployment_to_tc_connections()
 
         print("Finished creating connections between nodes")
 
     def _create_app_specific_resource_connections(self) -> None:
-        """Create connections from deployments to their app-specific resources like caches"""
-        queries = []
+        """Create connections from compute nodes to their app-specific resources like caches"""
+        print("Creating app-specific resource connections...")
 
         for app_kebab, _ in self.app_names:
             cache_name = f"{app_kebab}-cache"
+            cache_node = self.all_nodes.get(cache_name)
 
+            if not cache_node:
+                continue
+
+            # Find all compute nodes for this application
+            app_compute_nodes = [node for node in self.compute_nodes if node.service_name == app_kebab]
+
+            # Connect each compute node to the cache
+            for compute_node in app_compute_nodes:
+                database.connect_nodes(compute_node, cache_node)
+
+    def _create_shared_resource_connections(self) -> None:
+        """Create connections to shared resources based on defined patterns"""
+        print("Creating shared resource connections...")
+
+        # Define shared resource connections with their patterns
+        shared_resource_connections = [
+            # format: (resource_name, probability, description)
+            ("postgres-main", 1.0, "All compute nodes use postgres"),
+            ("redis-main", 0.6, "Some compute nodes use redis"),
+            ("elasticsearch-main", 0.4, "Some compute nodes use elasticsearch"),
+            ("aws-s3", 1.0, "All compute nodes use S3"),
+            ("aws-dynamodb", 0.3, "Some compute nodes use DynamoDB"),
+            ("aws-sqs", 0.5, "Some compute nodes use SQS")
+        ]
+
+        # For each compute node, connect to resources based on probability
+        for compute_node in self.compute_nodes:
+            for resource_name, probability, _ in shared_resource_connections:
+                resource_node = self.all_nodes.get(resource_name)
+
+                if resource_node and random.random() < probability:
+                    database.connect_nodes(compute_node, resource_node)
+
+    def _create_deployment_connections(self) -> None:
+        """Create a mesh of deployment-to-deployment connections via pod->deployment connections"""
+        print("Creating deployment-to-deployment connections...")
+
+        # Get all deployment nodes
+        deployment_nodes = []
+        for app_kebab, _ in self.app_names:
             for deployment_name in self.deployment_names[app_kebab]:
-                query = f"""
-                MATCH (deploy:Deployment {{name: "{deployment_name}"}}), (res:Resource {{name: "{cache_name}"}})
-                CREATE (deploy)-[:CALLS]->(res)
-                """
-                queries.append(query)
+                if deployment_name in self.all_nodes:
+                    deployment_nodes.append(self.all_nodes[deployment_name])
 
-        self.run_queries(queries)
-        print("Created app-specific resource connections")
+        # Create random connections between deployments (15% chance)
+        connection_count = 0
+        max_connections = 200
 
-    def _create_shared_resource_connections(self, resource_patterns) -> None:
-        """
-        Create connections to shared resources based on defined patterns
+        for i, source_deployment in enumerate(deployment_nodes):
+            for target_deployment in deployment_nodes[i+1:]:
+                if connection_count >= max_connections:
+                    break
 
-        Args:
-            resource_patterns: List of tuples (resource_name, probability, description)
-        """
-        queries = []
+                if random.random() < 0.15:  # 15% chance
+                    # Find source pods for this deployment
+                    source_pods = [node for node in self.compute_nodes 
+                                  if node.node_name.startswith(source_deployment.node_name)]
 
-        for resource_name, probability, description in resource_patterns:
-            query = f"""
-            // {description}
-            MATCH (deploy:Deployment), (res:Resource {{name: "{resource_name}"}})
-            """
+                    if source_pods:
+                        # Connect a random source pod to the target deployment
+                        # The database module will automatically create the connection from 
+                        # the parent deployment to the target deployment
+                        source_pod = random.choice(source_pods)
+                        database.connect_nodes(source_pod, target_deployment)
+                        connection_count += 1
 
-            # Add probability condition if it's not 100%
-            if probability < 1.0:
-                query += f"WHERE rand() < {probability}  // {int(probability * 100)}% chance\n"
+                        # Also create pod-to-pod connections (70% chance)
+                        if random.random() < 0.7:
+                            # Find target pods
+                            target_pods = [node for node in self.compute_nodes 
+                                          if node.node_name.startswith(target_deployment.node_name)]
 
-            query += "CREATE (deploy)-[:CALLS]->(res)"
-            queries.append(query)
+                            if target_pods:
+                                target_pod = random.choice(target_pods)
+                                database.connect_nodes(source_pod, target_pod)
 
-        self.run_queries(queries)
-        print(f"Created connections to {len(resource_patterns)} shared resources")
+    def _create_compute_to_unknown_connections(self) -> None:
+        """Connect some pods to unknown endpoints"""
+        print("Creating compute-to-unknown connections...")
 
-    def _create_node_connections(self, source_label, target_label, relationship_type,
-                                match_conditions, probability, limit, properties, description) -> None:
-        """
-        Create connections between nodes based on defined patterns
+        # Get all unknown nodes
+        unknown_nodes = [node for name, node in self.all_nodes.items() 
+                        if node.node_type == NodeType.UNKNOWN]
 
-        Args:
-            source_label: Label of the source node
-            target_label: Label of the target node
-            relationship_type: Type of relationship to create
-            match_conditions: Additional match conditions
-            probability: Probability of creating the connection
-            limit: Limit the number of connections
-            properties: Properties to add to the relationship
-            description: Description of the connection pattern
-        """
-        # Special case for pod-to-pod connections which has a more complex match pattern
-        if source_label == "deploy1" and target_label == "deploy2":
-            query = f"""
-            // {description}
-            MATCH (deploy1)-[:CALLS]->(deploy2),
-                  (deploy1)-[:HAS_MEMBER]->(pod1),
-                  (deploy2)-[:HAS_MEMBER]->(pod2)
-            WHERE rand() < {probability}  // {int(probability * 100)}% chance
-            """
-            
-            if limit:
-                query += f"WITH pod1, pod2 LIMIT {limit}\n"
-                
-            query += "CREATE (pod1)-[:CALLS]->(pod2)"
-            
-        else:
-            # Standard node-to-node connections
-            query = f"""
-            // {description}
-            MATCH (source:{source_label}), (target:{target_label})
-            WHERE source <> target AND rand() < {probability}  // {int(probability * 100)}% chance
-            """
+        if not unknown_nodes:
+            return
 
-            if match_conditions:
-                # Replace 'source' and 'target' with actual variable names in the condition
-                condition = match_conditions.replace("source", "source").replace("target", "target")
-                query += f"AND {condition}\n"
+        # Connect some compute nodes to unknown nodes (10% chance)
+        connection_count = 0
+        max_connections = 20
 
-            if limit:
-                query += f"WITH source, target LIMIT {limit}\n"
+        for compute_node in self.compute_nodes:
+            if connection_count >= max_connections:
+                break
 
-            # Add properties to the relationship if specified
-            if properties:
-                props_str = ", ".join([f"{k}: '{v}'" if isinstance(v, str) else f"{k}: {v}"
-                                     for k, v in properties.items()])
-                query += f"CREATE (source)-[:{relationship_type} {{{props_str}}}]->(target)"
-            else:
-                query += f"CREATE (source)-[:{relationship_type}]->(target)"
+            if random.random() < 0.1:  # 10% chance
+                unknown_node = random.choice(unknown_nodes)
+                database.connect_nodes(compute_node, unknown_node)
+                connection_count += 1
 
-        self.run_query(query)
-        print(f"Created {relationship_type} connections from {source_label} to {target_label}")
+    def _create_deployment_to_tc_connections(self) -> None:
+        """Create HTTP/HTTPS traffic relationships between compute nodes and traffic controllers
+        The database module will automatically create the connection from the parent deployment to the traffic controller"""
+        print("Creating compute-to-traffic-controller connections...")
+
+        # Connect compute nodes to traffic controllers of other apps (20% chance)
+        connection_count = 0
+        max_connections = 50
+
+        for app_kebab, _ in self.app_names:
+            # Find all compute nodes for this application
+            app_compute_nodes = [node for node in self.compute_nodes if node.service_name == app_kebab]
+
+            if not app_compute_nodes:
+                continue
+
+            for tc_node in self.tc_nodes:
+                if connection_count >= max_connections:
+                    break
+
+                # Only connect to TCs of other apps
+                if tc_node.service_name != app_kebab and random.random() < 0.2:  # 20% chance
+                    # Connect a random compute node to the traffic controller
+                    # The database module will automatically create the connection from 
+                    # the parent deployment to the traffic controller
+                    compute_node = random.choice(app_compute_nodes)
+                    database.connect_nodes(compute_node, tc_node)
+                    connection_count += 1
 
     def generate_data(self) -> None:
         """Generate all the data in the database"""
         try:
             print("Starting data generation...")
-            self.initialize_data()
-            
+            self.initialize_configurations()
+
             # Execute data generation in sequence
-            self.create_applications()
-            self.create_deployments()
+            self.create_deployments()  # and computes, and traffic controllers
             self.create_resources()
             self.create_unknown_nodes()
             self.create_connections()
-            
+
             print("\nData generation complete!")
             print(f"Generated {NUM_APPLICATIONS} applications")
             print(f"Generated approximately {NUM_APPLICATIONS * NUM_DEPLOYMENTS_PER_APP} deployments")
             print(f"Generated approximately {self.compute_count} compute nodes")
             print(f"Generated {self.tc_count} traffic controllers")
             print("To view the data, connect to your Neo4j browser")
-            
+
         except Exception as e:
             print(f"Error during data generation: {e}")
             raise
@@ -731,8 +721,7 @@ class Neo4jDataGenerator:
 def main():
     """Main function to run the data generator"""
     print("Neo4j Data Generator for Network Topology")
-    print(f"Connecting to Neo4j at {NEO4J_URI}...")
-    
+
     # Print configuration
     print("\nConfiguration:")
     print(f"Number of applications: {NUM_APPLICATIONS}")
@@ -744,16 +733,10 @@ def main():
     print(f"Number of AWS VPCs: {NUM_AWS_VPCS}")
     print(f"Number of public IP nodes: {NUM_PUBLIC_IP_NODES}")
     print(f"Percentage of nodes with unknown cluster: {PERCENT_UNKNOWN_CLUSTER}%")
-    
-    try:
-        generator = Neo4jDataGenerator(NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD)
-        generator.generate_data()
-        generator.close()
-    except Exception as e:
-        print(f"Fatal error: {e}")
-        return 1
-    
-    return 0
+
+    generator = AstrolabeDataGenerator()
+    generator.generate_data()
+    generator.close()
 
 
 if __name__ == "__main__":

@@ -37,10 +37,10 @@ from neomodel.properties import Property
 
 
 class Neo4jConnection:
-    def __init__(self, uri: str, auth: tuple[str, str]):
+    def __init__(self, uri: str, database: str, auth: tuple[str, str]):
         self._uri = uri
         self._auth = auth
-
+        self._database = database
         self._driver = None
 
     def __enter__(self):
@@ -51,7 +51,7 @@ class Neo4jConnection:
         self.close()
 
     def open(self):
-        self._driver = GraphDatabase.driver(self._uri, auth=self._auth)
+        self._driver = GraphDatabase.driver(self._uri, auth=self._auth, database=self._database)
         db.set_connection(self._uri, self._driver)
 
         # Clear sensitive information

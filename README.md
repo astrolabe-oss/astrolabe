@@ -7,7 +7,7 @@ Configure Astrolabe to discover your network topology by introspecting runtime e
 * python 3.10 or greater available at `/usr/local/env python3`
 * Neo4J Installed
   * NEO4J environment variables required for access:
-    * NEO4J_URL
+    * NEO4J_URI
     * NEO4J_USERNAME
     * NEO4J_PASSWORD
 * AWS CLI Login authenticated
